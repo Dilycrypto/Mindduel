@@ -1,0 +1,20 @@
+services:
+  - type: web
+    name: mindduel-frontend
+    env: node
+    rootDir: ./frontend
+    buildCommand: yarn install && yarn build
+    startCommand: yarn start  # For production Next.js server
+    envVars:
+      - key: NODE_VERSION
+        value: 18
+
+  - type: web
+    name: mindduel-backend
+    env: node
+    rootDir: ./backend
+    buildCommand: yarn install
+    startCommand: yarn start  # Update package.json below
+    envVars:
+      - key: NODE_VERSION
+        value: 18
