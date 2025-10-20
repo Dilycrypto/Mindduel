@@ -22,7 +22,7 @@ export default function Lobby() {
 
     // Connect Socket after wallet
     if (savedAddress) {
-      const newSocket = io('https://mindduel-backend-[your-backend-slug].onrender.com');  // Your backend URL
+      const newSocket = io('https://mindduel-1-h2cm.onrender.com/');
       newSocket.on('connect', () => console.log('Socket connected!'));
       newSocket.on('poolUpdate', (data: any) => {
         setPools((prev: any) => ({ ...prev, [data.poolId]: { players: data.players, playerList: data.playerList } }));
