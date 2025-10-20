@@ -49,7 +49,7 @@ export default function Home() {
           {/* Keep the ping if you want */}
           <button
             onClick={async () => {
-              const response = await fetch('https://mindduel-backend-[your-backend-slug].onrender.com/health');  // Your backend URL
+              const response = await fetch('https://mindduel-1-h2cm.onrender.com//health');
               if (response.ok) alert('Backend pinged—real-time ready!');
             }}
             className="bg-gray-500 hover:bg-gray-700 px-4 py-2 rounded mt-4 ml-4"
