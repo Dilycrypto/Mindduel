@@ -1,32 +1,53 @@
 'use client';
 import { useState, useEffect } from 'react';
-import { useRouter } from 'next/navigation';  // For potential redirects later
+import { useRouter } from 'next/navigation';
+import io, { Socket } from 'socket.io-client';  // Add import
 
 export default function Lobby() {
   const [walletAddress, setWalletAddress] = useState<string | null>(null);
-  const [timeLeft, setTimeLeft] = useState(300);  // 5 mins countdown in seconds
+  const [timeLeft, setTimeLeft] = useState(300);
+  const [pools, setPools] = useState<any>({
+    '0.50': { players: 5, playerList: ['0xabc...', '0xdef...'] },
+    '1': { players: 12, playerList: ['0xghi...', '0xjkl...'] },
+    '5': { players: 8, playerList: ['0xmno...'] },
+    '10': { players: 3, playerList: [] },
+  });
+  const [socket, setSocket] = useState<Socket | null>(null);
 
   useEffect(() => {
-    // Check if wallet connected (from localStorage for demo)
     const savedAddress = localStorage.getItem('walletAddress');
     if (savedAddress) {
       setWalletAddress(savedAddress);
     }
 
-    // Countdown timer
+    // Connect Socket after wallet
+    if (savedAddress) {
+      const newSocket = io('https://mindduel-backend-[your-backend-slug].onrender.com');  // Your backend URL
+      newSocket.on('connect', () => console.log('Socket connected!'));
+      newSocket.on('poolUpdate', (data: any) => {
+        setPools((prev: any) => ({ ...prev, [data.poolId]: { players: data.players, playerList: data.playerList } }));
+        console.log('Live update:', data);
+      });
+      newSocket.on('error', (err: any) => alert(err.message));
+      setSocket(newSocket);
+
+      return () => newSocket.close();
+    }
+
+    // Countdown (unchanged)
     const interval = setInterval(() => {
       setTimeLeft((prev) => {
         if (prev <= 1) {
           clearInterval(interval);
-          alert('New game starting!');  // Mock start
-          return 300;  // Reset
+          alert('New game starting!');
+          return 300;
         }
         return prev - 1;
       });
     }, 1000);
 
     return () => clearInterval(interval);
-  }, []);
+  }, [walletAddress]);
 
   const formatTime = (seconds: number) => {
     const mins = Math.floor(seconds / 60);
@@ -35,12 +56,12 @@ export default function Lobby() {
   };
 
   const joinPool = (stake: string) => {
-    if (!walletAddress) {
-      alert('Connect wallet first!');
+    if (!walletAddress || !socket) {
+      alert('Connect wallet or check connection!');
       return;
     }
-    console.log(`Joined ${stake} pool!`);  // Later: Real join via backend
-    alert(`Staked ${stake}—Game in ${formatTime(timeLeft)}!`);
+    socket.emit('joinPool', { poolId: stake.replace('$', ''), wallet: walletAddress });
+    // No alert—wait for live update!
   };
 
   return (
@@ -50,13 +71,11 @@ export default function Lobby() {
         {!walletAddress ? (
           <div className="text-center">
             <p>Connect wallet to join.</p>
-            {/* Add back connect button if needed */}
           </div>
         ) : (
           <>
             <p className="text-center mb-8">Wallet: {walletAddress.slice(0, 6)}...{walletAddress.slice(-4)}</p>
             
-            {/* Upcoming Games Section */}
             <section className="mb-8">
               <h2 className="text-2xl mb-4">Next Game Starts In:</h2>
               <div className="text-4xl font-mono text-center bg-blue-800 p-4 rounded">
@@ -64,28 +83,26 @@ export default function Lobby() {
               </div>
             </section>
 
-            {/* Pool Tiers */}
             <section>
               <h2 className="text-2xl mb-4">Choose Stake Level</h2>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                {[
-                  { stake: '$0.50', players: 5, prize: 'Top 3 share $2' },
-                  { stake: '$1', players: 12, prize: 'Top 5 share $8' },
-                  { stake: '$5', players: 8, prize: 'Top 4 share $40' },
-                  { stake: '$10', players: 3, prize: 'Top 2 share $80' },
-                ].map((pool) => (
-                  <div key={pool.stake} className="bg-gray-800 p-6 rounded-lg border-l-4 border-green-500">
-                    <h3 className="text-xl font-bold">{pool.stake} Pool</h3>
-                    <p className="text-gray-300">Players: {pool.players}</p>
-                    <p className="text-sm text-gray-400 mb-4">{pool.prize}</p>
-                    <button
-                      onClick={() => joinPool(pool.stake)}
-                      className="w-full bg-green-500 hover:bg-green-700 py-2 rounded font-bold"
-                    >
-                      Join Now
-                    </button>
-                  </div>
-                ))}
+                {Object.keys(pools).map((key) => {
+                  const pool = pools[key];
+                  const stake = key === '0.50' ? '$0.50' : `$${key}`;
+                  return (
+                    <div key={stake} className="bg-gray-800 p-6 rounded-lg border-l-4 border-green-500">
+                      <h3 className="text-xl font-bold">{stake} Pool</h3>
+                      <p className="text-gray-300">Players: <span id={`players-${key}`}>{pool.players}</span></p>
+                      <p className="text-sm text-gray-400 mb-4">Prize: Top {pool.players > 10 ? '10%' : '3'} share pool</p>
+                      <button
+                        onClick={() => joinPool(stake)}
+                        className="w-full bg-green-500 hover:bg-green-700 py-2 rounded font-bold"
+                      >
+                        Join Now
+                      </button>
+                    </div>
+                  );
+                })}
               </div>
             </section>
           </>
