@@ -43,4 +43,16 @@ export default function Home() {
       )}
     </main>
   );
+  
+  {isConnected && (
+  <button
+    onClick={async () => {
+      const response = await fetch('https://mindduel-backend-xyz.onrender.com/health');  // Replace with YOUR backend URL
+      if (response.ok) alert('Backend pinged—real-time ready!');
+    }}
+    className="bg-blue-500 hover:bg-blue-700 px-4 py-2 rounded mt-4"
+  >
+    Ping Backend
+  </button>
+)}
 }
