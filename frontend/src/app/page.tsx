@@ -1,6 +1,7 @@
 'use client';
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { ethers } from 'ethers';
+import Link from 'next/link';  // Add this import
 
 export default function Home() {
   const [walletAddress, setWalletAddress] = useState<string | null>(null);
@@ -15,7 +16,7 @@ export default function Home() {
         const address = await signer.getAddress();
         setWalletAddress(address);
         setIsConnected(true);
-        alert('Wallet connected!');  // Temp feedback
+        alert('Wallet connected!');
       } catch (error) {
         alert('Connection failed—check MetaMask.');
       }
@@ -38,21 +39,25 @@ export default function Home() {
       ) : (
         <div className="text-center">
           <p className="mb-4">Connected: {walletAddress?.slice(0, 6)}...{walletAddress?.slice(-4)}</p>
-          <p>Ready for duels!</p>
+          <p className="mb-4">Ready for duels!</p>
+          {/* Add this button */}
+          <Link href="/lobby">
+            <button className="bg-blue-500 hover:bg-blue-700 px-6 py-3 rounded-lg text-lg font-bold">
+              Enter Lobby
+            </button>
+          </Link>
+          {/* Keep the ping if you want */}
+          <button
+            onClick={async () => {
+              const response = await fetch('https://mindduel-backend-[your-backend-slug].onrender.com/health');  // Your backend URL
+              if (response.ok) alert('Backend pinged—real-time ready!');
+            }}
+            className="bg-gray-500 hover:bg-gray-700 px-4 py-2 rounded mt-4 ml-4"
+          >
+            Ping Backend
+          </button>
         </div>
       )}
     </main>
   );
-  
-  {isConnected && (
-  <button
-    onClick={async () => {
-      const response = await fetch('https://mindduel-1-h2cm.onrender.com/health');
-      if (response.ok) alert('Backend pinged—real-time ready!');
-    }}
-    className="bg-blue-500 hover:bg-blue-700 px-4 py-2 rounded mt-4"
-  >
-    Ping Backend
-  </button>
-)}
 }
