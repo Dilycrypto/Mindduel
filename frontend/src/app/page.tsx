@@ -15,6 +15,7 @@ export default function Home() {
         const signer = await provider.getSigner();
         const address = await signer.getAddress();
         setWalletAddress(address);
+        localStorage.setItem('walletAddress', address);
         setIsConnected(true);
         alert('Wallet connected!');
       } catch (error) {
