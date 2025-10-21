@@ -46,7 +46,10 @@ export default function Game() {
     });
     setSocket(newSocket);
 
-    return () => newSocket.close();
+    // Fixed cleanup: Braces ensure void return
+    return () => {
+      newSocket.disconnect();
+    };
   }, [walletAddress]);
 
   useEffect(() => {
