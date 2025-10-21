@@ -21,7 +21,7 @@ export default function Game() {
     const savedAddress = localStorage.getItem('walletAddress');
     if (savedAddress) setWalletAddress(savedAddress);
 
-    const newSocket = io('https://mindduel-backend-[your-backend-slug].onrender.com');  // Replace with your full backend URL
+    const newSocket = io('https://mindduel-1-h2cm.onrender.com');  
     newSocket.on('connect', () => console.log('Game socket connected!'));
     newSocket.on('gameStart', (data: any) => {
       setQuestions(data.questions);
