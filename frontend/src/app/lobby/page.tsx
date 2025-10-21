@@ -21,10 +21,10 @@ export default function Lobby() {
       setWalletAddress(savedAddress);
     }
 
-    // Connect Socket after wallet
+    // Connect Socket after wallet (for pool updates only)
     if (savedAddress) {
-      const newSocket = io('https://mindduel-1-h2cm.onrender.com'); 
-      newSocket.on('connect', () => console.log('Socket connected!'));
+      const newSocket = io('https://mindduel-1-h2cm.onrender.com');  
+      newSocket.on('connect', () => console.log('Lobby socket connected!'));
       newSocket.on('poolUpdate', (data: any) => {
         setPools((prev: any) => ({ ...prev, [data.poolId]: { players: data.players, playerList: data.playerList } }));
         console.log('Live update:', data);
@@ -32,7 +32,6 @@ export default function Lobby() {
       newSocket.on('error', (err: any) => alert(err.message));
       setSocket(newSocket);
 
-      // Fixed cleanup: Braces ensure void return
       return () => {
         newSocket.disconnect();
       };
@@ -60,13 +59,12 @@ export default function Lobby() {
   };
 
   const joinPool = (stake: string) => {
-    if (!walletAddress || !socket) {
-      alert('Connect wallet or check connection!');
+    if (!walletAddress) {
+      alert('Connect wallet first!');
       return;
     }
     const poolId = stake.replace('$', '');
-    socket.emit('joinPool', { poolId, wallet: walletAddress });
-    // Redirect to game after emit
+    // Just redirect—game page handles join/emit
     router.push(`/game/${poolId}`);
   };
 
