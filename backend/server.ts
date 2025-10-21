@@ -55,21 +55,40 @@ io.on('connection', (socket: Socket) => {
       if (!pools[poolId].playerList.includes(wallet)) {
         pools[poolId].playerList.push(wallet);
         pools[poolId].players = pools[poolId].playerList.length;
-        socket.join(poolId);
+        
+        // Update all in pool
         io.to(poolId).emit('poolUpdate', { 
           poolId, 
           players: pools[poolId].players, 
           playerList: pools[poolId].playerList 
         });
+        
+        // Join the new socket to room
+        socket.join(poolId);
+        
+        console.log(`Player ${wallet.slice(0,6)}... joined ${poolId} pool. Total: ${pools[poolId].players}`);
 
-        // Auto-start game if 2+ players (demo—tweak to 1 for solo testing)
-        if (pools[poolId].players >= 2 && !games[poolId]) {
+        // Send current game state if exists (for late joiners)
+        if (games[poolId]) {
+          socket.emit('gameState', {
+            questions: games[poolId].questions,
+            currentQ: games[poolId].currentQ,
+            players: games[poolId].players
+          });
+        }
+
+        // Auto-start game if 1+ players and no game (solo-friendly)
+        if (pools[poolId].players >= 1 && !games[poolId]) {
           games[poolId] = { 
             questions: [...questionBank].sort(() => Math.random() - 0.5),  // Randomize order per game (anti-cheat)
             players: pools[poolId].playerList.map(w => ({ wallet: w, score: 0 })),
             currentQ: 0 
           };
-          io.to(poolId).emit('gameStart', { poolId, questions: games[poolId].questions });
+          io.to(poolId).emit('gameStart', { 
+            poolId, 
+            questions: games[poolId].questions,
+            players: games[poolId].players 
+          });
           console.log(`Game started in ${poolId} pool!`);
         }
       } else {
@@ -91,7 +110,7 @@ io.on('connection', (socket: Socket) => {
         players: games[poolId].players, 
         currentQ: qIndex 
       });
-      console.log(`Answer submitted in ${poolId}: ${wallet} scored? ${answer === games[poolId].questions[qIndex].correct}`);
+      console.log(`Answer submitted in ${poolId}: ${wallet.slice(0,6)}... scored? ${answer === games[poolId].questions[qIndex].correct}`);
     }
   });
 
@@ -102,14 +121,15 @@ io.on('connection', (socket: Socket) => {
       if (games[poolId].currentQ < 10) {
         io.to(poolId).emit('nextQuestion', { poolId, qIndex: games[poolId].currentQ });
       } else {
-        // Game end - mock prizes (top 3: 50/30/20%)
-        const totalPool = pools[poolId].players * parseFloat(poolId);  // Fake total stake
+        // Game end - mock prizes (top 3: 50/30/20%, 10% fee)
+        const totalPool = pools[poolId].players * parseFloat(poolId);
         const sortedPlayers = games[poolId].players.sort((a, b) => b.score - a.score);
         const prizes = sortedPlayers.slice(0, 3).map((p, i) => ({ 
           wallet: p.wallet, 
-          prize: (totalPool * (i === 0 ? 0.5 : i === 1 ? 0.3 : 0.2) - (totalPool * 0.1)).toFixed(2)  // 10% platform fee
+          prize: (totalPool * (i === 0 ? 0.5 : i === 1 ? 0.3 : 0.2) * 0.9).toFixed(2)  // 10% platform fee
         }));
         io.to(poolId).emit('gameEnd', { poolId, prizes, finalScores: sortedPlayers });
+        console.log(`Game ended in ${poolId}: Winners ${prizes.map(p => p.wallet.slice(0,6)).join(', ')}`);
       }
     }
   });
