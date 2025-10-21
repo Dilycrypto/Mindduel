@@ -21,12 +21,26 @@ export default function Game() {
     const savedAddress = localStorage.getItem('walletAddress');
     if (savedAddress) setWalletAddress(savedAddress);
 
-    const newSocket = io('https://mindduel-1-h2cm.onrender.com');  
-    newSocket.on('connect', () => console.log('Game socket connected!'));
+    const newSocket = io('https://mindduel-1-h2cm.onrender.com');
+    newSocket.on('connect', () => {
+      console.log('Game socket connected!');
+      // Emit join on connect + wallet (joins room, starts if needed, gets state)
+      if (walletAddress) {
+        newSocket.emit('joinPool', { poolId: stake, wallet: walletAddress });
+      }
+    });
     newSocket.on('gameStart', (data: any) => {
+      console.log('Game starting!');
       setQuestions(data.questions);
       setCurrentQ(0);
       setTimeLeft(7);
+      setPlayers(data.players || []);
+    });
+    newSocket.on('gameState', (data: any) => {
+      console.log('Joining mid-game:', data);
+      setQuestions(data.questions);
+      setCurrentQ(data.currentQ);
+      setTimeLeft(7);  // Reset timer—slight desync ok for mock
       setPlayers(data.players || []);
     });
     newSocket.on('nextQuestion', (data: any) => {
@@ -44,31 +58,31 @@ export default function Game() {
       const myPrize = data.prizes.find((p: any) => p.wallet === walletAddress);
       alert(`Game Over! Your score: ${myScore}/10. Prize: ${myPrize ? `$${myPrize.prize} USDC` : 'None—sharpen those skills!'} (Mock payout)`);
     });
+    newSocket.on('error', (err: any) => alert(`Game error: ${err.message}`));
     setSocket(newSocket);
 
-    // Fixed cleanup: Braces ensure void return
     return () => {
       newSocket.disconnect();
     };
-  }, [walletAddress]);
+  }, [walletAddress, stake]);  // Add stake dep for re-emit if needed
 
   useEffect(() => {
     let timer: NodeJS.Timeout;
     if (currentQ < questions.length && timeLeft > 0) {
       timer = setTimeout(() => setTimeLeft(timeLeft - 1), 1000);
     } else if (timeLeft === 0) {
-      // Time up or answered—next question
+      // Time up—next question
       socket?.emit('nextQuestion', { poolId: stake });
     }
     return () => clearTimeout(timer);
   }, [timeLeft, currentQ, selectedAnswer, questions.length, stake]);
 
   const submitAnswer = (answer: string) => {
-    if (selectedAnswer) return;  // Prevent double-submit
+    if (selectedAnswer || !walletAddress) return;  // Prevent double-submit
     setSelectedAnswer(answer);
     socket?.emit('submitAnswer', { 
       poolId: stake, 
-      wallet: walletAddress!, 
+      wallet: walletAddress, 
       answer, 
       qIndex: currentQ 
     });
@@ -92,7 +106,14 @@ export default function Game() {
   }
 
   if (questions.length === 0) {
-    return <main className="min-h-screen bg-gray-900 text-white flex items-center justify-center"><p>Waiting for game to start... (Need 2 players? Try another tab!)</p></main>;
+    return (
+      <main className="min-h-screen bg-gray-900 text-white flex items-center justify-center">
+        <div className="text-center">
+          <p className="text-xl mb-4">Joining duel... (Connect wallet if needed)</p>
+          <p className="text-gray-400">Console: Check for "Game socket connected!"</p>
+        </div>
+      </main>
+    );
   }
 
   const q = questions[currentQ];
@@ -113,12 +134,12 @@ export default function Game() {
         <section className="mb-6">
           <h2 className="text-xl font-bold mb-3">Live Leaderboard</h2>
           <ul className="bg-gray-800 p-4 rounded overflow-y-auto max-h-48">
-            {players.sort((a: any, b: any) => b.score - a.score).map((p: any, i: number) => (
+            {players.length > 0 ? players.sort((a: any, b: any) => b.score - a.score).map((p: any, i: number) => (
               <li key={p.wallet} className={`flex justify-between py-2 border-b border-gray-700 last:border-b-0 ${p.wallet === walletAddress ? 'text-yellow-400' : ''}`}>
                 <span>#{i + 1} {p.wallet.slice(0, 6)}...</span>
                 <span className="font-bold">{p.score}/10</span>
               </li>
-            ))}
+            )) : <li className="py-2 text-gray-400">Players loading...</li>}
           </ul>
         </section>
 
