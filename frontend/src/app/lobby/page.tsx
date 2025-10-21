@@ -32,7 +32,10 @@ export default function Lobby() {
       newSocket.on('error', (err: any) => alert(err.message));
       setSocket(newSocket);
 
-      return () => newSocket.close();
+      // Fixed cleanup: Braces ensure void return
+      return () => {
+        newSocket.disconnect();
+      };
     }
 
     // Countdown timer
