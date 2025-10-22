@@ -4,6 +4,7 @@ import { ethers } from 'ethers';
 import Link from 'next/link';
 
 const USDC_ADDRESS = '0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238';  // Sepolia USDC
+const SEPOLIA_CHAIN_ID = 11155111;  // Hex 0xaa36a7
 
 const USDC_ABI = ['function balanceOf(address) view returns (uint256)'];
 
@@ -11,6 +12,7 @@ export default function Home() {
   const [walletAddress, setWalletAddress] = useState<string | null>(null);
   const [isConnected, setIsConnected] = useState(false);
   const [usdcBalance, setUsdcBalance] = useState('0');
+  const [networkError, setNetworkError] = useState('');
 
   const connectWallet = async () => {
     if (typeof window !== 'undefined' && (window as any).ethereum) {
@@ -23,15 +25,36 @@ export default function Home() {
         setIsConnected(true);
         localStorage.setItem('walletAddress', address);
 
-        // Fetch USDC balance on Sepolia
+        // Check network
+        const network = await provider.getNetwork();
+        if (network.chainId !== SEPOLIA_CHAIN_ID) {
+          try {
+            await (window as any).ethereum.request({
+              method: 'wallet_switchEthereumChain',
+              params: [{ chainId: '0xaa36a7' }],  // Sepolia hex
+            });
+            // Re-fetch after switch
+            const newProvider = new ethers.BrowserProvider((window as any).ethereum);
+            const newNetwork = await newProvider.getNetwork();
+            if (newNetwork.chainId !== SEPOLIA_CHAIN_ID) {
+              throw new Error('Switch failed—add Sepolia manually.');
+            }
+          } catch (switchError) {
+            setNetworkError('Switch to Sepolia failed. Add it: Chain ID 11155111, RPC https://rpc.sepolia.org.');
+            return;
+          }
+        }
+
+        // Fetch USDC balance
         const usdc = new ethers.Contract(USDC_ADDRESS, USDC_ABI, provider);
         const bal = await usdc.balanceOf(address);
-        setUsdcBalance(ethers.formatUnits(bal, 6));  // 6 decimals
+        setUsdcBalance(ethers.formatUnits(bal, 6));
+        setNetworkError('');
       } catch (error) {
-        alert('Connection failed—ensure Sepolia testnet!');
+        setNetworkError('Connection failed: ' + (error as Error).message + '. Ensure MetaMask on Sepolia.');
       }
     } else {
-      alert('Install MetaMask!');
+      setNetworkError('Install MetaMask!');
     }
   };
 
@@ -55,6 +78,7 @@ export default function Home() {
         <div className="text-center">
           <p className="mb-4">Connected: {walletAddress?.slice(0, 6)}...{walletAddress?.slice(-4)}</p>
           <p className="mb-4 text-green-300">tUSDC Balance: {usdcBalance}</p>
+          {networkError && <p className="mb-4 text-red-300">{networkError}</p>}
           <Link href="/lobby">
             <button className="bg-blue-500 hover:bg-blue-700 px-6 py-3 rounded-lg text-lg font-bold block mb-4">
               Enter Lobby
