@@ -1,11 +1,16 @@
 'use client';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { ethers } from 'ethers';
-import Link from 'next/link';  // Add this import
+import Link from 'next/link';
+
+const USDC_ADDRESS = '0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238';  // Sepolia USDC
+
+const USDC_ABI = ['function balanceOf(address) view returns (uint256)'];
 
 export default function Home() {
   const [walletAddress, setWalletAddress] = useState<string | null>(null);
   const [isConnected, setIsConnected] = useState(false);
+  const [usdcBalance, setUsdcBalance] = useState('0');
 
   const connectWallet = async () => {
     if (typeof window !== 'undefined' && (window as any).ethereum) {
@@ -15,15 +20,24 @@ export default function Home() {
         const signer = await provider.getSigner();
         const address = await signer.getAddress();
         setWalletAddress(address);
-        localStorage.setItem('walletAddress', address);
         setIsConnected(true);
-        alert('Wallet connected!');
+        localStorage.setItem('walletAddress', address);
+
+        // Fetch USDC balance on Sepolia
+        const usdc = new ethers.Contract(USDC_ADDRESS, USDC_ABI, provider);
+        const bal = await usdc.balanceOf(address);
+        setUsdcBalance(ethers.formatUnits(bal, 6));  // 6 decimals
       } catch (error) {
-        alert('Connection failed—check MetaMask.');
+        alert('Connection failed—ensure Sepolia testnet!');
       }
     } else {
-      alert('Please install MetaMask!');
+      alert('Install MetaMask!');
     }
+  };
+
+  const pingBackend = async () => {
+    const response = await fetch('https://mindduel-1-h2cm.onrender.com/health');
+    if (response.ok) alert('Backend good!');
   };
 
   return (
@@ -40,20 +54,15 @@ export default function Home() {
       ) : (
         <div className="text-center">
           <p className="mb-4">Connected: {walletAddress?.slice(0, 6)}...{walletAddress?.slice(-4)}</p>
-          <p className="mb-4">Ready for duels!</p>
-          {/* Add this button */}
+          <p className="mb-4 text-green-300">tUSDC Balance: {usdcBalance}</p>
           <Link href="/lobby">
-            <button className="bg-blue-500 hover:bg-blue-700 px-6 py-3 rounded-lg text-lg font-bold">
+            <button className="bg-blue-500 hover:bg-blue-700 px-6 py-3 rounded-lg text-lg font-bold block mb-4">
               Enter Lobby
             </button>
           </Link>
-          {/* Keep the ping if you want */}
           <button
-            onClick={async () => {
-              const response = await fetch('https://mindduel-1-h2cm.onrender.com//health');
-              if (response.ok) alert('Backend pinged—real-time ready!');
-            }}
-            className="bg-gray-500 hover:bg-gray-700 px-4 py-2 rounded mt-4 ml-4"
+            onClick={pingBackend}
+            className="bg-gray-500 hover:bg-gray-700 px-4 py-2 rounded"
           >
             Ping Backend
           </button>
