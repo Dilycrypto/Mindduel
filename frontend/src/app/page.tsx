@@ -27,7 +27,7 @@ export default function Home() {
 
         // Check network
         const network = await provider.getNetwork();
-        if (network.chainId !== SEPOLIA_CHAIN_ID) {
+        if (Number(network.chainId) !== SEPOLIA_CHAIN_ID) {
           try {
             await (window as any).ethereum.request({
               method: 'wallet_switchEthereumChain',
@@ -36,7 +36,7 @@ export default function Home() {
             // Re-fetch after switch
             const newProvider = new ethers.BrowserProvider((window as any).ethereum);
             const newNetwork = await newProvider.getNetwork();
-            if (newNetwork.chainId !== SEPOLIA_CHAIN_ID) {
+            if (Number(newNetwork.chainId) !== SEPOLIA_CHAIN_ID) {
               throw new Error('Switch failed—add Sepolia manually.');
             }
           } catch (switchError) {
