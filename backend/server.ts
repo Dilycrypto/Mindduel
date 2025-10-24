@@ -39,7 +39,7 @@ const games: { [poolId: string]: { questions: any[]; players: PlayerScore[]; cur
 async function generateQuestions(): Promise<any[]> {
   try {
     const completion = await openai.chat.completions.create({
-      model: "gpt-4o-mini",  // Efficient for trivia
+      model: "gpt-4o-mini",
       messages: [
         {
           role: "system",
@@ -49,20 +49,20 @@ One-word answers only. 4 options per Q (A, B, C, D—correct answer D). No repea
         }
       ],
       max_tokens: 800,
-      temperature: 0.6,  // Balanced variety
+      temperature: 0.6,
     });
     const generated = JSON.parse(completion.choices[0].message.content || '[]');
-    return generated.slice(0, 10);  // Ensure 10
+    return generated.slice(0, 10);
   } catch (error) {
     console.error('AI gen failed:', error);
-    return [];  // Fallback empty—add static if needed
+    return [];  // Fallback
   }
 }
 
 io.on('connection', (socket: Socket) => {
   console.log('Player connected:', socket.id);
 
-  socket.on('joinPool', (data: { poolId: string; wallet: string }) => {
+  socket.on('joinPool', async (data: { poolId: string; wallet: string }) => {  // Async callback
     const { poolId, wallet } = data;
     if (pools[poolId]) {
       if (!pools[poolId].playerList.includes(wallet)) {
@@ -87,7 +87,7 @@ io.on('connection', (socket: Socket) => {
         }
 
         if (pools[poolId].players >= 1 && !games[poolId]) {
-          const allQuestions = await generateQuestions();
+          const allQuestions = await generateQuestions();  // Await here
           games[poolId] = { 
             questions: allQuestions,
             players: pools[poolId].playerList.map(w => ({ wallet: w, score: 0 })),
@@ -127,7 +127,7 @@ io.on('connection', (socket: Socket) => {
         players: games[poolId].players, 
         currentQ: qIndex 
       });
-      // Instant next on submit (speed test)
+      // Instant next on submit
       socket.emit('nextQuestion', { poolId });
       console.log(`Answer submitted in ${poolId}: ${wallet.slice(0,6)}... scored? ${answer === games[poolId].questions[qIndex].correct} — next Q!`);
     }
