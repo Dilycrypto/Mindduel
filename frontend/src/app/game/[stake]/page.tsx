@@ -40,15 +40,17 @@ export default function Game() {
     newSocket.on('gameState', (data: any) => {
       console.log('Joining mid-game:', data);
       setQuestions(data.questions);
-      setCurrentQ(data.currentQ);
+      setCurrentQ(data.currentQ || 0);
       setTimeLeft(7);
       setPlayers(data.players || []);
       setErrorMsg('');
     });
     newSocket.on('nextQuestion', (data: any) => {
-      setCurrentQ(data.qIndex);
+      const newQ = data.qIndex || 0;
+      setCurrentQ(newQ);
       setTimeLeft(7);
       setSelectedAnswer('');
+      console.log(`Next Q from server: ${newQ + 1}/10`);
     });
     newSocket.on('scoreUpdate', (data: any) => {
       setPlayers(data.players);
@@ -62,7 +64,9 @@ export default function Game() {
     });
     newSocket.on('error', (err: any) => {
       console.log('Socket error:', err.message);
-      setErrorMsg(err.message);  // Show on page, not alert
+      if (!err.message.includes('already joined')) {
+        setErrorMsg(err.message);
+      }
     });
     setSocket(newSocket);
 
@@ -90,6 +94,12 @@ export default function Game() {
       answer, 
       qIndex: currentQ 
     });
+    // Optimistic update for instant next
+    const newQ = currentQ + 1;
+    setCurrentQ(newQ);
+    setTimeLeft(7);
+    setSelectedAnswer('');
+    console.log(`Submitted—optimistic next Q: ${newQ + 1}/10`);
   };
 
   if (gameEnded) {
@@ -122,7 +132,7 @@ export default function Game() {
     );
   }
 
-  const q = questions[currentQ];
+  const q = questions[currentQ] || { q: 'Loading...', options: [] };  // Guard NaN/undefined
 
   return (
     <main className="min-h-screen bg-gray-900 text-white p-4">
@@ -131,7 +141,7 @@ export default function Game() {
           <h1 className="text-2xl font-bold">MindDuel: {stake} Pool</h1>
           <div className="text-right space-y-1">
             <p className="text-lg">⏱️ {timeLeft}s</p>
-            <p>Q {currentQ + 1}/10</p>
+            <p>Q {isNaN(currentQ) ? 'Loading...' : currentQ + 1}/10</p>
             <p>Score: {myScore}</p>
           </div>
         </header>
@@ -149,9 +159,9 @@ export default function Game() {
         </section>
 
         <section className="bg-blue-900 p-6 rounded-lg mb-6">
-          <h2 className="text-2xl font-bold mb-6 text-center">{q?.q}</h2>
+          <h2 className="text-2xl font-bold mb-6 text-center">{q.q}</h2>
           <div className="grid grid-cols-2 gap-4">
-            {q?.options.map((opt: string, i: number) => (
+            {q.options.map((opt: string, i: number) => (
               <button
                 key={opt}
                 onClick={() => submitAnswer(opt)}
