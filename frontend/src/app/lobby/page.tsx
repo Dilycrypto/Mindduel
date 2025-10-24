@@ -4,8 +4,8 @@ import { useRouter } from 'next/navigation';
 import io, { Socket } from 'socket.io-client';
 import { ethers } from 'ethers';
 
-const CONTRACT_ADDRESS = '0x7Eba683b9cFB85A46cb795B5c84dCD327c777fa3';  // Your deployed addr
-const USDC_ADDRESS = '0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238';  // Sepolia USDC
+const CONTRACT_ADDRESS = '0x7Eba683b9cFB85A46cb795B5c84dCD327c777fa3';
+const USDC_ADDRESS = '0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238';
 
 const CONTRACT_ABI = [
   "function joinTournament(uint256 _stakeAmount) external",
@@ -17,10 +17,10 @@ export default function Lobby() {
   const [walletAddress, setWalletAddress] = useState<string | null>(null);
   const [timeLeft, setTimeLeft] = useState(300);
   const [pools, setPools] = useState<any>({
-    '0.50': { players: 5, playerList: ['0xabc...', '0xdef...'] },
-    '1': { players: 12, playerList: ['0xghi...', '0xjkl...'] },
-    '5': { players: 8, playerList: ['0xmno...'] },
-    '10': { players: 3, playerList: [] },
+    '0.10': { players: 0, playerList: [] },  // New low tier
+    '1': { players: 0, playerList: [] },
+    '5': { players: 0, playerList: [] },
+    '10': { players: 0, playerList: [] },
   });
   const [socket, setSocket] = useState<Socket | null>(null);
   const [provider, setProvider] = useState<ethers.BrowserProvider | null>(null);
@@ -72,7 +72,7 @@ export default function Lobby() {
       return;
     }
     const poolId = stake.replace('$', '');
-    const stakeAmount = parseFloat(poolId) * 1e6;  // 6 decimals, e.g., 0.50 = 500000
+    const stakeAmount = parseFloat(poolId) * 1e6;  // e.g., 0.10 = 100000
 
     try {
       const signer = await provider.getSigner();
@@ -84,7 +84,7 @@ export default function Lobby() {
       const contract = new ethers.Contract(CONTRACT_ADDRESS, CONTRACT_ABI, signer);
       const joinTx = await contract.joinTournament(stakeAmount);
       await joinTx.wait();
-      alert(`Staked ${stake}! Tx: ${joinTx.hash} (Check sepolia.etherscan.io/tx/${joinTx.hash})`);
+      alert(`Staked ${stake}! Tx: ${joinTx.hash.slice(0,10)}...`);
 
       socket?.emit('joinPool', { poolId, wallet: walletAddress });
       router.push(`/game/${poolId}`);
@@ -117,7 +117,7 @@ export default function Lobby() {
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 {Object.keys(pools).map((key) => {
                   const pool = pools[key];
-                  const stake = key === '0.50' ? '$0.50' : `$${key}`;
+                  const stake = key === '0.10' ? '$0.10' : `$${key}`;
                   const winners = pool.players <= 10 ? 'Top 3' : pool.players <= 50 ? 'Top 10%' : 'Top 20%';
                   return (
                     <div key={stake} className="bg-gray-800 p-6 rounded-lg border-l-4 border-green-500">
