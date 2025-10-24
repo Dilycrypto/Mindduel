@@ -26,7 +26,7 @@ interface Pool {
   playerList: string[];
 }
 const pools: { [key: string]: Pool } = {
-  '0.10': { id: '0.10', stake: '$0.10', players: 0, playerList: [] },
+  '0.10': { id: '0.10', stake: '$0.10', players: 0, playerList: [] },  // New low tier
   '1': { id: '1', stake: '$1', players: 0, playerList: [] },
   '5': { id: '5', stake: '$5', players: 0, playerList: [] },
   '10': { id: '10', stake: '$10', players: 0, playerList: [] },
@@ -35,7 +35,7 @@ const pools: { [key: string]: Pool } = {
 interface PlayerScore { wallet: string; score: number; }
 const games: { [poolId: string]: { questions: any[]; players: PlayerScore[]; currentQ: number; } } = {};
 
-// Static fallback (6 Qs)
+// Static fallback (10 Qs)
 const staticFallback = [
   { q: "What is the capital of France?", options: ["Paris", "London", "Berlin", "Madrid"], correct: "Paris" },
   { q: "E=mc² is from which scientist?", options: ["Einstein", "Newton", "Tesla", "Curie"], correct: "Einstein" },
@@ -43,6 +43,10 @@ const staticFallback = [
   { q: "Mount Everest is in which range?", options: ["Himalayas", "Andes", "Rockies", "Alps"], correct: "Himalayas" },
   { q: "First iPhone released in?", options: ["2007", "2001", "2010", "1999"], correct: "2007" },
   { q: "Planet closest to Sun?", options: ["Mercury", "Venus", "Earth", "Mars"], correct: "Mercury" },
+  { q: "What is the chemical symbol for gold?", options: ["Au", "Ag", "Fe", "Pb"], correct: "Au" },
+  { q: "Who painted the Mona Lisa?", options: ["Da Vinci", "Picasso", "Van Gogh", "Michelangelo"], correct: "Da Vinci" },
+  { q: "How many continents are there?", options: ["7", "5", "6", "8"], correct: "7" },
+  { q: "What is the currency of Japan?", options: ["Yen", "Yuan", "Won", "Ringgit"], correct: "Yen" },
 ];
 
 // Generate 10 unique basic trivia Qs from OpenAI (mixed categories)
@@ -55,26 +59,22 @@ async function generateQuestions(): Promise<any[]> {
           role: "user",
           content: `Generate 10 unique multiple-choice trivia questions for a basic-level knowledge game (general awareness, not professional/expert). Mix these categories evenly: General Knowledge, Geography, History, Science, Technology, Sports, Movies & TV, Music, Literature, Food & Drink, Business & Economics, Politics & Governance, Space & Astronomy, Inventions & Discoveries, Logic & Riddles, Famous Personalities, Nature & Environment, Gaming, Religion & Mythology, Travel & Culture, Trends & News (use current date October 24, 2025 for trends/news—recent events only).
 
-One-word answers only. 4 options per Q (A, B, C, D—correct answer D). No repeats across Qs. Output ONLY valid JSON array: [{"q": "question?", "options": ["A option", "B option", "C option", "D correct"], "correct": "D"}]. No markdown, no explanations.`
+One-word answers only. 4 options per Q (A, B, C, D—correct answer D). No repeats across Qs. Output ONLY valid JSON array: [{"q": "question?", "options": ["A option", "B option", "C option", "D correct"], "correct": "D"}]. No markdown, no code blocks, no explanations.`
         }
       ],
       max_tokens: 800,
       temperature: 0.6,
-      response_format: { type: "json_object" },  // Force JSON
+      response_format: { type: "json_object" },
     });
-    const content = completion.choices[0].message.content;
+    let content = completion.choices[0].message.content || '';
+    // Strip common markdown wrappers
+    content = content.replace(/```json\n?|\n?```/g, '').trim();
     if (!content) throw new Error('Empty response');
     const generated = JSON.parse(content);
-    return (generated as any[]).slice(0, 10);  // Ensure 10
+    return (generated as any[]).slice(0, 10);
   } catch (error) {
     console.error('AI gen failed:', error);
-    // Fallback to static + dummies
-    const dummies = Array(4).fill(null).map(() => ({
-      q: "Placeholder Q (AI fallback)",
-      options: ["A", "B", "C", "D"],
-      correct: "D"
-    }));
-    return [...staticFallback, ...dummies].sort(() => Math.random() - 0.5);
+    return staticFallback.sort(() => Math.random() - 0.5);
   }
 }
 
@@ -117,7 +117,7 @@ io.on('connection', (socket: Socket) => {
             questions: games[poolId].questions,
             players: games[poolId].players 
           });
-          console.log(`Game started in ${poolId} pool with 10 AI questions!`);
+          console.log(`Game started in ${poolId} pool with 10 questions! (AI or fallback)`);
         }
       } else {
         socket.join(poolId);
@@ -128,7 +128,6 @@ io.on('connection', (socket: Socket) => {
             players: games[poolId].players
           });
         }
-        // No error emit—silent re-join
         console.log(`Player ${wallet.slice(0,6)}... re-joined ${poolId}—sent state.`);
       }
     }
@@ -146,7 +145,6 @@ io.on('connection', (socket: Socket) => {
         players: games[poolId].players, 
         currentQ: qIndex 
       });
-      // Instant next on submit
       socket.emit('nextQuestion', { poolId });
       console.log(`Answer submitted in ${poolId}: ${wallet.slice(0,6)}... scored? ${answer === games[poolId].questions[qIndex].correct} — next Q!`);
     }
