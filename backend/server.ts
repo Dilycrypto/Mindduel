@@ -26,7 +26,7 @@ interface Pool {
   playerList: string[];
 }
 const pools: { [key: string]: Pool } = {
-  '0.10': { id: '0.10', stake: '$0.10', players: 0, playerList: [] },  // New low tier
+  '0.10': { id: '0.10', stake: '$0.10', players: 0, playerList: [] },
   '1': { id: '1', stake: '$1', players: 0, playerList: [] },
   '5': { id: '5', stake: '$5', players: 0, playerList: [] },
   '10': { id: '10', stake: '$10', players: 0, playerList: [] },
@@ -67,11 +67,12 @@ One-word answers only. 4 options per Q (A, B, C, D—correct answer D). No repea
       response_format: { type: "json_object" },
     });
     let content = completion.choices[0].message.content || '';
-    // Strip common markdown wrappers
     content = content.replace(/```json\n?|\n?```/g, '').trim();
     if (!content) throw new Error('Empty response');
     const generated = JSON.parse(content);
-    return (generated as any[]).slice(0, 10);
+    // Ensure array
+    if (!Array.isArray(generated)) throw new Error('Not array');
+    return generated.slice(0, 10);
   } catch (error) {
     console.error('AI gen failed:', error);
     return staticFallback.sort(() => Math.random() - 0.5);
