@@ -2,6 +2,11 @@ import express from 'express';
 import { createServer } from 'http';
 import { Server, Socket } from 'socket.io';
 import cors from 'cors';
+import OpenAI from 'openai';
+
+const openai = new OpenAI({
+  apiKey: process.env.OPENAI_API_KEY,
+});
 
 const app = express();
 const server = createServer(app);
@@ -30,18 +35,29 @@ const pools: { [key: string]: Pool } = {
 interface PlayerScore { wallet: string; score: number; }
 const games: { [poolId: string]: { questions: any[]; players: PlayerScore[]; currentQ: number; } } = {};
 
-const questionBank = [
-  { q: "What is the capital of France?", options: ["Paris", "London", "Berlin", "Madrid"], correct: "Paris" },
-  { q: "Who won the 2024 World Series?", options: ["Dodgers", "Yankees", "Astros", "Phillies"], correct: "Dodgers" },
-  { q: "E=mc² is from which scientist?", options: ["Einstein", "Newton", "Tesla", "Curie"], correct: "Einstein" },
-  { q: "Largest ocean on Earth?", options: ["Pacific", "Atlantic", "Indian", "Arctic"], correct: "Pacific" },
-  { q: "What AI model dominated benchmarks in early 2025?", options: ["Grok-3", "GPT-5", "Claude 4", "Gemini 2"], correct: "Grok-3" },
-  { q: "Mount Everest is in which range?", options: ["Himalayas", "Andes", "Rockies", "Alps"], correct: "Himalayas" },
-  { q: "First iPhone released in?", options: ["2007", "2001", "2010", "1999"], correct: "2007" },
-  { q: "Planet closest to Sun?", options: ["Mercury", "Venus", "Earth", "Mars"], correct: "Mercury" },
-  { q: "Which country hosted 2024 Summer Olympics?", options: ["France", "USA", "Japan", "Brazil"], correct: "France" },
-  { q: "Python programming language named after?", options: ["Monty Python", "Snake", "Programming God", "Empire"], correct: "Monty Python" },
-];
+// Generate 10 unique basic trivia Qs from OpenAI (mixed categories)
+async function generateQuestions(): Promise<any[]> {
+  try {
+    const completion = await openai.chat.completions.create({
+      model: "gpt-4o-mini",  // Efficient for trivia
+      messages: [
+        {
+          role: "system",
+          content: `Generate 10 unique multiple-choice trivia questions for a basic-level knowledge game (general awareness, not professional/expert). Mix these categories evenly: General Knowledge, Geography, History, Science, Technology, Sports, Movies & TV, Music, Literature, Food & Drink, Business & Economics, Politics & Governance, Space & Astronomy, Inventions & Discoveries, Logic & Riddles, Famous Personalities, Nature & Environment, Gaming, Religion & Mythology, Travel & Culture, Trends & News (use current date October 24, 2025 for trends/news—recent events only).
+
+One-word answers only. 4 options per Q (A, B, C, D—correct answer D). No repeats across Qs. Format: JSON array of {q: 'question?', options: ['A option', 'B option', 'C option', 'D correct'], correct: 'D'}. No explanations.`
+        }
+      ],
+      max_tokens: 800,
+      temperature: 0.6,  // Balanced variety
+    });
+    const generated = JSON.parse(completion.choices[0].message.content || '[]');
+    return generated.slice(0, 10);  // Ensure 10
+  } catch (error) {
+    console.error('AI gen failed:', error);
+    return [];  // Fallback empty—add static if needed
+  }
+}
 
 io.on('connection', (socket: Socket) => {
   console.log('Player connected:', socket.id);
@@ -71,8 +87,9 @@ io.on('connection', (socket: Socket) => {
         }
 
         if (pools[poolId].players >= 1 && !games[poolId]) {
+          const allQuestions = await generateQuestions();
           games[poolId] = { 
-            questions: [...questionBank].sort(() => Math.random() - 0.5),
+            questions: allQuestions,
             players: pools[poolId].playerList.map(w => ({ wallet: w, score: 0 })),
             currentQ: 0 
           };
@@ -81,10 +98,9 @@ io.on('connection', (socket: Socket) => {
             questions: games[poolId].questions,
             players: games[poolId].players 
           });
-          console.log(`Game started in ${poolId} pool!`);
+          console.log(`Game started in ${poolId} pool with 10 AI questions!`);
         }
       } else {
-        // Allow re-join for testing—send state if game active
         socket.join(poolId);
         if (games[poolId]) {
           socket.emit('gameState', {
@@ -111,7 +127,9 @@ io.on('connection', (socket: Socket) => {
         players: games[poolId].players, 
         currentQ: qIndex 
       });
-      console.log(`Answer submitted in ${poolId}: ${wallet.slice(0,6)}... scored? ${answer === games[poolId].questions[qIndex].correct}`);
+      // Instant next on submit (speed test)
+      socket.emit('nextQuestion', { poolId });
+      console.log(`Answer submitted in ${poolId}: ${wallet.slice(0,6)}... scored? ${answer === games[poolId].questions[qIndex].correct} — next Q!`);
     }
   });
 
