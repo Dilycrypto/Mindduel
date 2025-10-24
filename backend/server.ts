@@ -2,11 +2,9 @@ import express from 'express';
 import { createServer } from 'http';
 import { Server, Socket } from 'socket.io';
 import cors from 'cors';
-import OpenAI from 'openai';
+import { GoogleGenerativeAI } from '@google/generative-ai';
 
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY,
-});
+const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || '');
 
 const app = express();
 const server = createServer(app);
@@ -35,47 +33,25 @@ const pools: { [key: string]: Pool } = {
 interface PlayerScore { wallet: string; score: number; }
 const games: { [poolId: string]: { questions: any[]; players: PlayerScore[]; currentQ: number; } } = {};
 
-// Static fallback (10 Qs)
-const staticFallback = [
-  { q: "What is the capital of France?", options: ["Paris", "London", "Berlin", "Madrid"], correct: "Paris" },
-  { q: "E=mc² is from which scientist?", options: ["Einstein", "Newton", "Tesla", "Curie"], correct: "Einstein" },
-  { q: "Largest ocean on Earth?", options: ["Pacific", "Atlantic", "Indian", "Arctic"], correct: "Pacific" },
-  { q: "Mount Everest is in which range?", options: ["Himalayas", "Andes", "Rockies", "Alps"], correct: "Himalayas" },
-  { q: "First iPhone released in?", options: ["2007", "2001", "2010", "1999"], correct: "2007" },
-  { q: "Planet closest to Sun?", options: ["Mercury", "Venus", "Earth", "Mars"], correct: "Mercury" },
-  { q: "What is the chemical symbol for gold?", options: ["Au", "Ag", "Fe", "Pb"], correct: "Au" },
-  { q: "Who painted the Mona Lisa?", options: ["Da Vinci", "Picasso", "Van Gogh", "Michelangelo"], correct: "Da Vinci" },
-  { q: "How many continents are there?", options: ["7", "5", "6", "8"], correct: "7" },
-  { q: "What is the currency of Japan?", options: ["Yen", "Yuan", "Won", "Ringgit"], correct: "Yen" },
-];
-
-// Generate 10 unique basic trivia Qs from OpenAI (mixed categories)
+// Generate 10 unique basic trivia Qs from Gemini (mixed categories)
 async function generateQuestions(): Promise<any[]> {
   try {
-    const completion = await openai.chat.completions.create({
-      model: "gpt-4o-mini",
-      messages: [
-        {
-          role: "user",
-          content: `Generate 10 unique multiple-choice trivia questions for a basic-level knowledge game (general awareness, not professional/expert). Mix these categories evenly: General Knowledge, Geography, History, Science, Technology, Sports, Movies & TV, Music, Literature, Food & Drink, Business & Economics, Politics & Governance, Space & Astronomy, Inventions & Discoveries, Logic & Riddles, Famous Personalities, Nature & Environment, Gaming, Religion & Mythology, Travel & Culture, Trends & News (use current date October 24, 2025 for trends/news—recent events only).
+    const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+    const prompt = `Generate 10 unique multiple-choice trivia questions for a basic-level knowledge game (general awareness, not professional/expert). Mix these categories evenly: General Knowledge, Geography, History, Science, Technology, Sports, Movies & TV, Music, Literature, Food & Drink, Business & Economics, Politics & Governance, Space & Astronomy, Inventions & Discoveries, Logic & Riddles, Famous Personalities, Nature & Environment, Gaming, Religion & Mythology, Travel & Culture, Trends & News (use current date October 24, 2025 for trends/news—recent events only).
 
-One-word answers only. 4 options per Q (A, B, C, D—correct answer D). No repeats across Qs. Output ONLY valid JSON array: [{"q": "question?", "options": ["A option", "B option", "C option", "D correct"], "correct": "D"}]. No markdown, no code blocks, no explanations.`
-        }
-      ],
-      max_tokens: 800,
-      temperature: 0.6,
-      response_format: { type: "json_object" },
-    });
-    let content = completion.choices[0].message.content || '';
-    content = content.replace(/```json\n?|\n?```/g, '').trim();
-    if (!content) throw new Error('Empty response');
-    const generated = JSON.parse(content);
-    // Ensure array
+One-word answers only. 4 options per Q (A, B, C, D—correct answer D). No repeats across Qs. Output ONLY valid JSON array: [{"q": "question?", "options": ["A option", "B option", "C option", "D correct"], "correct": "D"}]. No markdown, no code blocks, no explanations.`;
+
+    const result = await model.generateContent(prompt);
+    const content = result.response.text();
+    // Strip any wrappers
+    let jsonStr = content.replace(/```json\n?|\n?```/g, '').trim();
+    if (!jsonStr) throw new Error('Empty response');
+    const generated = JSON.parse(jsonStr);
     if (!Array.isArray(generated)) throw new Error('Not array');
     return generated.slice(0, 10);
   } catch (error) {
-    console.error('AI gen failed:', error);
-    return staticFallback.sort(() => Math.random() - 0.5);
+    console.error('Gemini gen failed:', error);
+    throw error;  // No fallback—log & let caller handle
   }
 }
 
@@ -107,18 +83,23 @@ io.on('connection', (socket: Socket) => {
         }
 
         if (pools[poolId].players >= 1 && !games[poolId]) {
-          const allQuestions = await generateQuestions();
-          games[poolId] = { 
-            questions: allQuestions,
-            players: pools[poolId].playerList.map(w => ({ wallet: w, score: 0 })),
-            currentQ: 0 
-          };
-          io.to(poolId).emit('gameStart', { 
-            poolId, 
-            questions: games[poolId].questions,
-            players: games[poolId].players 
-          });
-          console.log(`Game started in ${poolId} pool with 10 questions! (AI or fallback)`);
+          try {
+            const allQuestions = await generateQuestions();
+            games[poolId] = { 
+              questions: allQuestions,
+              players: pools[poolId].playerList.map(w => ({ wallet: w, score: 0 })),
+              currentQ: 0 
+            };
+            io.to(poolId).emit('gameStart', { 
+              poolId, 
+              questions: games[poolId].questions,
+              players: games[poolId].players 
+            });
+            console.log(`Game started in ${poolId} pool with 10 Gemini AI questions!`);
+          } catch (error) {
+            console.error(`Gemini gen error in ${poolId}:`, error);
+            socket.emit('error', { message: 'Questions gen failed—try again!' });
+          }
         }
       } else {
         socket.join(poolId);
