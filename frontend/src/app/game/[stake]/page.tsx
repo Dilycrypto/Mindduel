@@ -80,7 +80,8 @@ export default function Game() {
     if (currentQ < questions.length && timeLeft > 0) {
       timer = setTimeout(() => setTimeLeft(timeLeft - 1), 1000);
     } else if (timeLeft === 0) {
-      socket?.emit('nextQuestion', { poolId: stake });
+      // No client emit—server handles timeout via room sync
+      console.log('Time up—waiting for server advance.');
     }
     return () => clearTimeout(timer);
   }, [timeLeft, currentQ, selectedAnswer, questions.length, stake]);
@@ -94,8 +95,7 @@ export default function Game() {
       answer, 
       qIndex: currentQ 
     });
-    // No optimistic—wait for server 'nextQuestion' emit
-    console.log(`Submitted Q ${currentQ + 1}—waiting for next from server.`);
+    console.log(`Submitted Q ${currentQ + 1}—waiting for server next.`);
   };
 
   if (gameEnded) {
@@ -128,7 +128,7 @@ export default function Game() {
     );
   }
 
-  const q = questions[currentQ] || { q: 'Loading next question...', options: [] };  // Guard undefined
+  const q = questions[currentQ] || { q: 'Loading next question...', options: [] };
 
   return (
     <main className="min-h-screen bg-gray-900 text-white p-4">
@@ -157,7 +157,7 @@ export default function Game() {
         <section className="bg-blue-900 p-6 rounded-lg mb-6">
           <h2 className="text-2xl font-bold mb-6 text-center">{q.q}</h2>
           <div className="grid grid-cols-2 gap-4">
-            {q.options && q.options.map((opt: string, i: number) => (
+            {q.options && q.options.length === 4 ? q.options.map((opt: string, i: number) => (
               <button
                 key={opt}
                 onClick={() => submitAnswer(opt)}
@@ -172,7 +172,7 @@ export default function Game() {
               >
                 {String.fromCharCode(65 + i)}. {opt}
               </button>
-            )) || <p className="col-span-2 text-gray-400">Options loading...</p>}
+            )) : <p className="col-span-2 text-gray-400">Options loading...</p>}
           </div>
         </section>
 
