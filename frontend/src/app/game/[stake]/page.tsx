@@ -10,12 +10,13 @@ export default function Game() {
   const [walletAddress, setWalletAddress] = useState<string | null>(null);
   const [questions, setQuestions] = useState<any[]>([]);
   const [currentQ, setCurrentQ] = useState(0);
-  const [timeLeft, setTimeLeft] = useState(7);  // 7s per question (5-8 range)
+  const [timeLeft, setTimeLeft] = useState(7);
   const [selectedAnswer, setSelectedAnswer] = useState<string>('');
   const [players, setPlayers] = useState<any[]>([]);
   const [gameEnded, setGameEnded] = useState(false);
   const [socket, setSocket] = useState<Socket | null>(null);
   const [myScore, setMyScore] = useState(0);
+  const [errorMsg, setErrorMsg] = useState('');
 
   useEffect(() => {
     const savedAddress = localStorage.getItem('walletAddress');
@@ -24,7 +25,6 @@ export default function Game() {
     const newSocket = io('https://mindduel-1-h2cm.onrender.com');
     newSocket.on('connect', () => {
       console.log('Game socket connected!');
-      // Emit join on connect + wallet (joins room, starts if needed, gets state)
       if (walletAddress) {
         newSocket.emit('joinPool', { poolId: stake, wallet: walletAddress });
       }
@@ -35,13 +35,15 @@ export default function Game() {
       setCurrentQ(0);
       setTimeLeft(7);
       setPlayers(data.players || []);
+      setErrorMsg('');
     });
     newSocket.on('gameState', (data: any) => {
       console.log('Joining mid-game:', data);
       setQuestions(data.questions);
       setCurrentQ(data.currentQ);
-      setTimeLeft(7);  // Reset timer—slight desync ok for mock
+      setTimeLeft(7);
       setPlayers(data.players || []);
+      setErrorMsg('');
     });
     newSocket.on('nextQuestion', (data: any) => {
       setCurrentQ(data.qIndex);
@@ -56,29 +58,31 @@ export default function Game() {
     newSocket.on('gameEnd', (data: any) => {
       setGameEnded(true);
       const myPrize = data.prizes.find((p: any) => p.wallet === walletAddress);
-      alert(`Game Over! Your score: ${myScore}/10. Prize: ${myPrize ? `$${myPrize.prize} USDC` : 'None—sharpen those skills!'} (Mock payout)`);
+      alert(`Game Over! Your score: ${myScore}/10. Prize: ${myPrize ? `$${myPrize.prize} tUSDC` : 'None—sharpen those skills!'} (Mock payout)`);
     });
-    newSocket.on('error', (err: any) => alert(`Game error: ${err.message}`));
+    newSocket.on('error', (err: any) => {
+      console.log('Socket error:', err.message);
+      setErrorMsg(err.message);  // Show on page, not alert
+    });
     setSocket(newSocket);
 
     return () => {
       newSocket.disconnect();
     };
-  }, [walletAddress, stake]);  // Add stake dep for re-emit if needed
+  }, [walletAddress, stake]);
 
   useEffect(() => {
     let timer: NodeJS.Timeout;
     if (currentQ < questions.length && timeLeft > 0) {
       timer = setTimeout(() => setTimeLeft(timeLeft - 1), 1000);
     } else if (timeLeft === 0) {
-      // Time up—next question
       socket?.emit('nextQuestion', { poolId: stake });
     }
     return () => clearTimeout(timer);
   }, [timeLeft, currentQ, selectedAnswer, questions.length, stake]);
 
   const submitAnswer = (answer: string) => {
-    if (selectedAnswer || !walletAddress) return;  // Prevent double-submit
+    if (selectedAnswer || !walletAddress) return;
     setSelectedAnswer(answer);
     socket?.emit('submitAnswer', { 
       poolId: stake, 
@@ -110,7 +114,9 @@ export default function Game() {
       <main className="min-h-screen bg-gray-900 text-white flex items-center justify-center">
         <div className="text-center">
           <p className="text-xl mb-4">Joining duel... (Connect wallet if needed)</p>
-          <p className="text-gray-400">Console: Check for "Game socket connected!"</p>
+          <p className="text-gray-400 mb-2">Console: Check for "Game socket connected!"</p>
+          {errorMsg && <p className="text-red-400 mb-2">Error: {errorMsg}</p>}
+          <p className="text-sm text-gray-500">If stuck, refresh page.</p>
         </div>
       </main>
     );
@@ -130,7 +136,6 @@ export default function Game() {
           </div>
         </header>
 
-        {/* Live Leaderboard */}
         <section className="mb-6">
           <h2 className="text-xl font-bold mb-3">Live Leaderboard</h2>
           <ul className="bg-gray-800 p-4 rounded overflow-y-auto max-h-48">
@@ -143,7 +148,6 @@ export default function Game() {
           </ul>
         </section>
 
-        {/* Current Question */}
         <section className="bg-blue-900 p-6 rounded-lg mb-6">
           <h2 className="text-2xl font-bold mb-6 text-center">{q?.q}</h2>
           <div className="grid grid-cols-2 gap-4">
