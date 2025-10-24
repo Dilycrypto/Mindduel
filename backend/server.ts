@@ -33,26 +33,36 @@ const pools: { [key: string]: Pool } = {
 interface PlayerScore { wallet: string; score: number; }
 const games: { [poolId: string]: { questions: any[]; players: PlayerScore[]; currentQ: number; } } = {};
 
-// Generate 10 unique basic trivia Qs from Gemini (mixed categories, no fallback)
+// Generate 10 unique basic trivia Qs from Gemini (retry if <10)
 async function generateQuestions(): Promise<any[]> {
-  try {
-    const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
-    const prompt = `Generate 10 unique multiple-choice trivia questions for a basic-level knowledge game (general awareness, not professional/expert). Mix these categories evenly: General Knowledge, Geography, History, Science, Technology, Sports, Movies & TV, Music, Literature, Food & Drink, Business & Economics, Politics & Governance, Space & Astronomy, Inventions & Discoveries, Logic & Riddles, Famous Personalities, Nature & Environment, Gaming, Religion & Mythology, Travel & Culture, Trends & News (use current date October 24, 2025 for trends/news—recent events only).
+  let attempts = 0;
+  while (attempts < 3) {  // Retry up to 3x
+    try {
+      const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
+      const prompt = `Generate exactly 10 unique multiple-choice trivia questions for a basic-level knowledge game (general awareness, not professional/expert). Mix these categories evenly: General Knowledge, Geography, History, Science, Technology, Sports, Movies & TV, Music, Literature, Food & Drink, Business & Economics, Politics & Governance, Space & Astronomy, Inventions & Discoveries, Logic & Riddles, Famous Personalities, Nature & Environment, Gaming, Religion & Mythology, Travel & Culture, Trends & News (use current date October 24, 2025 for trends/news—recent events only).
 
-One-word answers only. 4 options per Q (A, B, C, D—correct answer D). No repeats across Qs. Output ONLY valid JSON array: [{"q": "question?", "options": ["A option", "B option", "C option", "D correct"], "correct": "D"}]. No markdown, no code blocks, no explanations.`;
+One-word answers only. 4 options per Q (A, B, C, D—correct answer D). No repeats across Qs. Output ONLY valid JSON array with exactly 10 items: [{"q": "question?", "options": ["A option", "B option", "C option", "D correct"], "correct": "D"}]. No markdown, no code blocks, no explanations.`;
 
-    const result = await model.generateContent(prompt);
-    let content = result.response.text().trim();
-    // Strip wrappers
-    content = content.replace(/```json\n?|\n?```/g, '').trim();
-    if (!content) throw new Error('Empty response');
-    const generated = JSON.parse(content);
-    if (!Array.isArray(generated)) throw new Error('Not array');
-    return generated.slice(0, 10);
-  } catch (error) {
-    console.error('Gemini gen failed:', error);
-    throw error;  // No fallback—retry stake
+      const result = await model.generateContent(prompt);
+      let content = result.response.text().trim();
+      content = content.replace(/```json\n?|\n?```/g, '').trim();
+      if (!content) throw new Error('Empty response');
+      const generated = JSON.parse(content);
+      if (!Array.isArray(generated)) throw new Error('Not array');
+      if (generated.length < 10) {
+        attempts++;
+        console.log(`Gen attempt ${attempts}: Only ${generated.length} Qs—retrying.`);
+        continue;
+      }
+      console.log(`Gemini gen success: 10 Qs ready!`);
+      return generated.slice(0, 10);
+    } catch (error) {
+      attempts++;
+      console.error(`Gen attempt ${attempts} failed:`, error);
+      if (attempts >= 3) throw new Error('Gemini gen failed after 3 attempts—retry stake.');
+    }
   }
+  throw new Error('Gen loop exited—retry stake.');
 }
 
 io.on('connection', (socket: Socket) => {
@@ -98,7 +108,7 @@ io.on('connection', (socket: Socket) => {
             console.log(`Game started in ${poolId} pool with 10 Gemini AI questions!`);
           } catch (error) {
             console.error(`Gemini gen error in ${poolId}:`, error);
-            socket.emit('error', { message: 'Questions gen failed—try stake again!' });
+            socket.emit('error', { message: 'Questions gen failed after retries—try stake again!' });
           }
         }
       } else {
