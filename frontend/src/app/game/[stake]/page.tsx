@@ -30,7 +30,7 @@ export default function Game() {
       }
     });
     newSocket.on('gameStart', (data: any) => {
-      console.log('Game starting!');
+      console.log('Game starting! Qs length:', data.questions.length);
       setQuestions(data.questions);
       setCurrentQ(0);
       setTimeLeft(7);
@@ -38,7 +38,7 @@ export default function Game() {
       setErrorMsg('');
     });
     newSocket.on('gameState', (data: any) => {
-      console.log('Joining mid-game:', data);
+      console.log('Joining mid-game! Qs length:', data.questions.length, 'Current Q:', data.currentQ);
       setQuestions(data.questions);
       setCurrentQ(data.currentQ || 0);
       setTimeLeft(7);
@@ -94,12 +94,8 @@ export default function Game() {
       answer, 
       qIndex: currentQ 
     });
-    // Optimistic update for instant next
-    const newQ = currentQ + 1;
-    setCurrentQ(newQ);
-    setTimeLeft(7);
-    setSelectedAnswer('');
-    console.log(`Submitted—optimistic next Q: ${newQ + 1}/10`);
+    // No optimistic—wait for server 'nextQuestion' emit
+    console.log(`Submitted Q ${currentQ + 1}—waiting for next from server.`);
   };
 
   if (gameEnded) {
@@ -132,7 +128,7 @@ export default function Game() {
     );
   }
 
-  const q = questions[currentQ] || { q: 'Loading...', options: [] };  // Guard NaN/undefined
+  const q = questions[currentQ] || { q: 'Loading next question...', options: [] };  // Guard undefined
 
   return (
     <main className="min-h-screen bg-gray-900 text-white p-4">
@@ -161,7 +157,7 @@ export default function Game() {
         <section className="bg-blue-900 p-6 rounded-lg mb-6">
           <h2 className="text-2xl font-bold mb-6 text-center">{q.q}</h2>
           <div className="grid grid-cols-2 gap-4">
-            {q.options.map((opt: string, i: number) => (
+            {q.options && q.options.map((opt: string, i: number) => (
               <button
                 key={opt}
                 onClick={() => submitAnswer(opt)}
@@ -176,7 +172,7 @@ export default function Game() {
               >
                 {String.fromCharCode(65 + i)}. {opt}
               </button>
-            ))}
+            )) || <p className="col-span-2 text-gray-400">Options loading...</p>}
           </div>
         </section>
 
