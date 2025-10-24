@@ -36,7 +36,7 @@ const games: { [poolId: string]: { questions: any[]; players: PlayerScore[]; cur
 // Generate 10 unique basic trivia Qs from Gemini (retry if <10)
 async function generateQuestions(): Promise<any[]> {
   let attempts = 0;
-  while (attempts < 3) {  // Retry up to 3x
+  while (attempts < 3) {
     try {
       const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
       const prompt = `Generate exactly 10 unique multiple-choice trivia questions for a basic-level knowledge game (general awareness, not professional/expert). Mix these categories evenly: General Knowledge, Geography, History, Science, Technology, Sports, Movies & TV, Music, Literature, Food & Drink, Business & Economics, Politics & Governance, Space & Astronomy, Inventions & Discoveries, Logic & Riddles, Famous Personalities, Nature & Environment, Gaming, Religion & Mythology, Travel & Culture, Trends & News (use current date October 24, 2025 for trends/news—recent events only).
@@ -137,14 +137,7 @@ io.on('connection', (socket: Socket) => {
         players: games[poolId].players, 
         currentQ: qIndex 
       });
-      socket.emit('nextQuestion', { poolId });
-      console.log(`Answer submitted in ${poolId}: ${wallet.slice(0,6)}... scored? ${answer === games[poolId].questions[qIndex].correct} — next Q!`);
-    }
-  });
-
-  socket.on('nextQuestion', (data: { poolId: string }) => {
-    const { poolId } = data;
-    if (games[poolId]) {
+      // Advance for all on submit (speed sync)
       games[poolId].currentQ += 1;
       if (games[poolId].currentQ < 10) {
         io.to(poolId).emit('nextQuestion', { poolId, qIndex: games[poolId].currentQ });
@@ -158,7 +151,12 @@ io.on('connection', (socket: Socket) => {
         io.to(poolId).emit('gameEnd', { poolId, prizes, finalScores: sortedPlayers });
         console.log(`Game ended in ${poolId}: Winners ${prizes.map(p => p.wallet.slice(0,6)).join(', ')}`);
       }
+      console.log(`Answer submitted in ${poolId}: ${wallet.slice(0,6)}... scored? ${answer === games[poolId].questions[qIndex].correct} — advanced to Q ${games[poolId].currentQ + 1}!`);
     }
+  });
+
+  socket.on('nextQuestion', (data: { poolId: string }) => {
+    // Ignore client emits—server controls
   });
 
   socket.on('leavePool', (poolId: string) => {
