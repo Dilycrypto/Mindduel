@@ -14,31 +14,28 @@ app.use(express.json());
 
 app.get('/health', (req, res) => res.send('OK - Backend alive!'));
 
-// In-memory pools (fake data—later: DB)
 interface Pool {
   id: string;
   stake: string;
   players: number;
-  playerList: string[];  // Wallet addresses
+  playerList: string[];
 }
 const pools: { [key: string]: Pool } = {
-  '0.50': { id: '0.50', stake: '$0.50', players: 5, playerList: ['0xabc...', '0xdef...'] },
-  '1': { id: '1', stake: '$1', players: 12, playerList: ['0xghi...', '0xjkl...'] },
-  '5': { id: '5', stake: '$5', players: 8, playerList: ['0xmno...'] },
-  '10': { id: '10', stake: '$10', players: 3, playerList: [] },
+  '0.50': { id: '0.50', stake: '$0.50', players: 0, playerList: [] },
+  '1': { id: '1', stake: '$1', players: 0, playerList: [] },
+  '5': { id: '5', stake: '$5', players: 0, playerList: [] },
+  '10': { id: '10', stake: '$10', players: 0, playerList: [] },
 };
 
-// Game sessions (per pool)
 interface PlayerScore { wallet: string; score: number; }
 const games: { [poolId: string]: { questions: any[]; players: PlayerScore[]; currentQ: number; } } = {};
 
-// Mock questions bank (general knowledge, 60% static + 40% "current" trends—updated for 2025 vibe)
 const questionBank = [
   { q: "What is the capital of France?", options: ["Paris", "London", "Berlin", "Madrid"], correct: "Paris" },
   { q: "Who won the 2024 World Series?", options: ["Dodgers", "Yankees", "Astros", "Phillies"], correct: "Dodgers" },
   { q: "E=mc² is from which scientist?", options: ["Einstein", "Newton", "Tesla", "Curie"], correct: "Einstein" },
   { q: "Largest ocean on Earth?", options: ["Pacific", "Atlantic", "Indian", "Arctic"], correct: "Pacific" },
-  { q: "What AI model dominated benchmarks in early 2025?", options: ["Grok-3", "GPT-5", "Claude 4", "Gemini 2"], correct: "Grok-3" },  // Trend mock
+  { q: "What AI model dominated benchmarks in early 2025?", options: ["Grok-3", "GPT-5", "Claude 4", "Gemini 2"], correct: "Grok-3" },
   { q: "Mount Everest is in which range?", options: ["Himalayas", "Andes", "Rockies", "Alps"], correct: "Himalayas" },
   { q: "First iPhone released in?", options: ["2007", "2001", "2010", "1999"], correct: "2007" },
   { q: "Planet closest to Sun?", options: ["Mercury", "Venus", "Earth", "Mars"], correct: "Mercury" },
@@ -56,19 +53,15 @@ io.on('connection', (socket: Socket) => {
         pools[poolId].playerList.push(wallet);
         pools[poolId].players = pools[poolId].playerList.length;
         
-        // Update all in pool
+        socket.join(poolId);
         io.to(poolId).emit('poolUpdate', { 
           poolId, 
           players: pools[poolId].players, 
           playerList: pools[poolId].playerList 
         });
         
-        // Join the new socket to room
-        socket.join(poolId);
-        
         console.log(`Player ${wallet.slice(0,6)}... joined ${poolId} pool. Total: ${pools[poolId].players}`);
 
-        // Send current game state if exists (for late joiners)
         if (games[poolId]) {
           socket.emit('gameState', {
             questions: games[poolId].questions,
@@ -77,10 +70,9 @@ io.on('connection', (socket: Socket) => {
           });
         }
 
-        // Auto-start game if 1+ players and no game (solo-friendly)
         if (pools[poolId].players >= 1 && !games[poolId]) {
           games[poolId] = { 
-            questions: [...questionBank].sort(() => Math.random() - 0.5),  // Randomize order per game (anti-cheat)
+            questions: [...questionBank].sort(() => Math.random() - 0.5),
             players: pools[poolId].playerList.map(w => ({ wallet: w, score: 0 })),
             currentQ: 0 
           };
@@ -92,7 +84,17 @@ io.on('connection', (socket: Socket) => {
           console.log(`Game started in ${poolId} pool!`);
         }
       } else {
-        socket.emit('error', { message: 'Already joined!' });
+        // Allow re-join for testing—send state if game active
+        socket.join(poolId);
+        if (games[poolId]) {
+          socket.emit('gameState', {
+            questions: games[poolId].questions,
+            currentQ: games[poolId].currentQ,
+            players: games[poolId].players
+          });
+        }
+        socket.emit('error', { message: 'Already joined—sending current state!' });
+        console.log(`Player ${wallet.slice(0,6)}... re-joined ${poolId}—sent state.`);
       }
     }
   });
@@ -104,7 +106,6 @@ io.on('connection', (socket: Socket) => {
       if (player && answer === games[poolId].questions[qIndex].correct) {
         player.score += 1;
       }
-      // Broadcast scores (all see leaderboard)
       io.to(poolId).emit('scoreUpdate', { 
         poolId, 
         players: games[poolId].players, 
@@ -121,12 +122,11 @@ io.on('connection', (socket: Socket) => {
       if (games[poolId].currentQ < 10) {
         io.to(poolId).emit('nextQuestion', { poolId, qIndex: games[poolId].currentQ });
       } else {
-        // Game end - mock prizes (top 3: 50/30/20%, 10% fee)
         const totalPool = pools[poolId].players * parseFloat(poolId);
         const sortedPlayers = games[poolId].players.sort((a, b) => b.score - a.score);
         const prizes = sortedPlayers.slice(0, 3).map((p, i) => ({ 
           wallet: p.wallet, 
-          prize: (totalPool * (i === 0 ? 0.5 : i === 1 ? 0.3 : 0.2) * 0.9).toFixed(2)  // 10% platform fee
+          prize: (totalPool * (i === 0 ? 0.5 : i === 1 ? 0.3 : 0.2) * 0.9).toFixed(2) 
         }));
         io.to(poolId).emit('gameEnd', { poolId, prizes, finalScores: sortedPlayers });
         console.log(`Game ended in ${poolId}: Winners ${prizes.map(p => p.wallet.slice(0,6)).join(', ')}`);
