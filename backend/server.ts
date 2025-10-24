@@ -33,25 +33,25 @@ const pools: { [key: string]: Pool } = {
 interface PlayerScore { wallet: string; score: number; }
 const games: { [poolId: string]: { questions: any[]; players: PlayerScore[]; currentQ: number; } } = {};
 
-// Generate 10 unique basic trivia Qs from Gemini (mixed categories)
+// Generate 10 unique basic trivia Qs from Gemini (mixed categories, no fallback)
 async function generateQuestions(): Promise<any[]> {
   try {
-    const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+    const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
     const prompt = `Generate 10 unique multiple-choice trivia questions for a basic-level knowledge game (general awareness, not professional/expert). Mix these categories evenly: General Knowledge, Geography, History, Science, Technology, Sports, Movies & TV, Music, Literature, Food & Drink, Business & Economics, Politics & Governance, Space & Astronomy, Inventions & Discoveries, Logic & Riddles, Famous Personalities, Nature & Environment, Gaming, Religion & Mythology, Travel & Culture, Trends & News (use current date October 24, 2025 for trends/news—recent events only).
 
 One-word answers only. 4 options per Q (A, B, C, D—correct answer D). No repeats across Qs. Output ONLY valid JSON array: [{"q": "question?", "options": ["A option", "B option", "C option", "D correct"], "correct": "D"}]. No markdown, no code blocks, no explanations.`;
 
     const result = await model.generateContent(prompt);
-    const content = result.response.text();
-    // Strip any wrappers
-    let jsonStr = content.replace(/```json\n?|\n?```/g, '').trim();
-    if (!jsonStr) throw new Error('Empty response');
-    const generated = JSON.parse(jsonStr);
+    let content = result.response.text().trim();
+    // Strip wrappers
+    content = content.replace(/```json\n?|\n?```/g, '').trim();
+    if (!content) throw new Error('Empty response');
+    const generated = JSON.parse(content);
     if (!Array.isArray(generated)) throw new Error('Not array');
     return generated.slice(0, 10);
   } catch (error) {
     console.error('Gemini gen failed:', error);
-    throw error;  // No fallback—log & let caller handle
+    throw error;  // No fallback—retry stake
   }
 }
 
@@ -98,7 +98,7 @@ io.on('connection', (socket: Socket) => {
             console.log(`Game started in ${poolId} pool with 10 Gemini AI questions!`);
           } catch (error) {
             console.error(`Gemini gen error in ${poolId}:`, error);
-            socket.emit('error', { message: 'Questions gen failed—try again!' });
+            socket.emit('error', { message: 'Questions gen failed—try stake again!' });
           }
         }
       } else {
