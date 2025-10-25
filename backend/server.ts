@@ -30,18 +30,18 @@ const pools: { [key: string]: Pool } = {
   '10': { id: '10', stake: '$10', players: 0, playerList: [] },
 };
 
-interface PlayerScore { wallet: string; score: number; }
-const games: { [poolId: string]: { questions: any[]; players: PlayerScore[]; currentQ: number; } } = {};
+interface PlayerScore { wallet: string; score: number; totalTime: number; }  // Add time for tie-break
+const games: { [poolId: string]: { questions: any[]; players: PlayerScore[]; currentQ: number; startTime: number; } } = {};
 
-// Generate 10 unique basic trivia Qs from Gemini (retry if <10)
+// Generate 10 unique basic trivia Qs from Gemini (general audience, no repeats)
 async function generateQuestions(): Promise<any[]> {
   let attempts = 0;
   while (attempts < 3) {
     try {
       const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
-      const prompt = `Generate exactly 10 unique multiple-choice trivia questions for a basic-level knowledge game (general awareness, not professional/expert). Mix these categories evenly: General Knowledge, Geography, History, Science, Technology, Sports, Movies & TV, Music, Literature, Food & Drink, Business & Economics, Politics & Governance, Space & Astronomy, Inventions & Discoveries, Logic & Riddles, Famous Personalities, Nature & Environment, Gaming, Religion & Mythology, Travel & Culture, Trends & News (use current date October 24, 2025 for trends/news—recent events only).
+      const prompt = `Generate exactly 10 unique multiple-choice trivia questions for a general audience knowledge game (grade 10-college level, basic awareness—not too simple for students or too difficult for professionals). Mix these categories evenly: General Knowledge, Geography, History, Science, Technology, Sports, Movies & TV, Music, Literature, Food & Drink, Business & Economics, Politics & Governance, Space & Astronomy, Inventions & Discoveries, Logic & Riddles, Famous Personalities, Nature & Environment, Gaming, Religion & Mythology, Travel & Culture, Trends & News (use current date for trends/news—recent events only). No repeats from previous games.
 
-One-word answers only. 4 options per Q (A, B, C, D—correct answer D). No repeats across Qs. Output ONLY valid JSON array with exactly 10 items: [{"q": "question?", "options": ["A option", "B option", "C option", "D correct"], "correct": "D"}]. No markdown, no code blocks, no explanations.`;
+One-word answers only. 4 options per Q (A, B, C, D—correct answer D). Output ONLY valid JSON array with exactly 10 items: [{"q": "question?", "options": ["A option", "B option", "C option", "D correct"], "correct": "D"}]. No markdown, no code blocks, no explanations.`;
 
       const result = await model.generateContent(prompt);
       let content = result.response.text().trim();
@@ -54,7 +54,7 @@ One-word answers only. 4 options per Q (A, B, C, D—correct answer D). No repea
         console.log(`Gen attempt ${attempts}: Only ${generated.length} Qs—retrying.`);
         continue;
       }
-      console.log(`Gemini gen success: 10 Qs ready!`);
+      console.log(`Gemini gen success: 10 unique Qs ready!`);
       return generated.slice(0, 10);
     } catch (error) {
       attempts++;
@@ -85,8 +85,10 @@ io.on('connection', (socket: Socket) => {
         console.log(`Player ${wallet.slice(0,6)}... joined ${poolId} pool. Total: ${pools[poolId].players}`);
 
         if (games[poolId]) {
+          // Per-player shuffle for randomization
+          const shuffledQs = [...games[poolId].questions].sort(() => Math.random() - 0.5);
           socket.emit('gameState', {
-            questions: games[poolId].questions,
+            questions: shuffledQs,
             currentQ: games[poolId].currentQ,
             players: games[poolId].players
           });
@@ -97,15 +99,17 @@ io.on('connection', (socket: Socket) => {
             const allQuestions = await generateQuestions();
             games[poolId] = { 
               questions: allQuestions,
-              players: pools[poolId].playerList.map(w => ({ wallet: w, score: 0 })),
-              currentQ: 0 
+              players: pools[poolId].playerList.map(w => ({ wallet: w, score: 0, totalTime: 0 })),
+              currentQ: 0,
+              startTime: Date.now()  // For time tracking
             };
             io.to(poolId).emit('gameStart', { 
               poolId, 
-              questions: games[poolId].questions,
-              players: games[poolId].players 
+              questions: games[poolId].questions,  // Base set—shuffle per player
+              players: games[poolId].players,
+              startTime: games[poolId].startTime
             });
-            console.log(`Game started in ${poolId} pool with 10 Gemini AI questions!`);
+            console.log(`Game started in ${poolId} pool with 10 unique Gemini AI questions!`);
           } catch (error) {
             console.error(`Gemini gen error in ${poolId}:`, error);
             socket.emit('error', { message: 'Questions gen failed after retries—try stake again!' });
@@ -114,39 +118,43 @@ io.on('connection', (socket: Socket) => {
       } else {
         socket.join(poolId);
         if (games[poolId]) {
+          const shuffledQs = [...games[poolId].questions].sort(() => Math.random() - 0.5);
           socket.emit('gameState', {
-            questions: games[poolId].questions,
+            questions: shuffledQs,
             currentQ: games[poolId].currentQ,
             players: games[poolId].players
           });
         }
-        console.log(`Player ${wallet.slice(0,6)}... re-joined ${poolId}—sent state.`);
+        console.log(`Player ${wallet.slice(0,6)}... re-joined ${poolId}—sent shuffled state.`);
       }
     }
   });
 
-  socket.on('submitAnswer', (data: { poolId: string; wallet: string; answer: string; qIndex: number }) => {
-    const { poolId, wallet, answer, qIndex } = data;
+  socket.on('submitAnswer', (data: { poolId: string; wallet: string; answer: string; qIndex: number; submitTime: number }) => {
+    const { poolId, wallet, answer, qIndex, submitTime } = data;
     if (games[poolId] && games[poolId].currentQ === qIndex) {
       const player = games[poolId].players.find(p => p.wallet === wallet);
-      if (player && answer === games[poolId].questions[qIndex].correct) {
-        player.score += 1;
+      if (player) {
+        if (answer === games[poolId].questions[qIndex].correct) {
+          player.score += 1;
+        }
+        player.totalTime += submitTime;  // Accumulate time for tie-break
       }
       io.to(poolId).emit('scoreUpdate', { 
         poolId, 
         players: games[poolId].players, 
         currentQ: qIndex 
       });
-      // Advance for all on submit (speed sync)
+      // Advance for all on submit (instant next)
       games[poolId].currentQ += 1;
       if (games[poolId].currentQ < 10) {
         io.to(poolId).emit('nextQuestion', { poolId, qIndex: games[poolId].currentQ });
       } else {
-        const totalPool = pools[poolId].players * parseFloat(poolId);
-        const sortedPlayers = games[poolId].players.sort((a, b) => b.score - a.score);
+        // End game—calculate winners (score desc, then totalTime asc)
+        const sortedPlayers = games[poolId].players.sort((a, b) => b.score - a.score || a.totalTime - b.totalTime);
         const prizes = sortedPlayers.slice(0, 3).map((p, i) => ({ 
           wallet: p.wallet, 
-          prize: (totalPool * (i === 0 ? 0.5 : i === 1 ? 0.3 : 0.2) * 0.9).toFixed(2) 
+          prize: (pools[poolId].players * parseFloat(poolId) * (i === 0 ? 0.5 : i === 1 ? 0.3 : 0.2) * 0.9).toFixed(2) 
         }));
         io.to(poolId).emit('gameEnd', { poolId, prizes, finalScores: sortedPlayers });
         console.log(`Game ended in ${poolId}: Winners ${prizes.map(p => p.wallet.slice(0,6)).join(', ')}`);
