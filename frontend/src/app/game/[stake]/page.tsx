@@ -10,13 +10,15 @@ export default function Game() {
   const [walletAddress, setWalletAddress] = useState<string | null>(null);
   const [questions, setQuestions] = useState<any[]>([]);
   const [currentQ, setCurrentQ] = useState(0);
-  const [timeLeft, setTimeLeft] = useState(7);
+  const [timeLeft, setTimeLeft] = useState(5);
   const [selectedAnswer, setSelectedAnswer] = useState<string>('');
   const [players, setPlayers] = useState<any[]>([]);
   const [gameEnded, setGameEnded] = useState(false);
   const [socket, setSocket] = useState<Socket | null>(null);
   const [myScore, setMyScore] = useState(0);
   const [errorMsg, setErrorMsg] = useState('');
+  const [gameStartTime, setGameStartTime] = useState(0);
+  const [qStartTime, setQStartTime] = useState(0);
 
   useEffect(() => {
     const savedAddress = localStorage.getItem('walletAddress');
@@ -33,23 +35,28 @@ export default function Game() {
       console.log('Game starting! Qs length:', data.questions.length);
       setQuestions(data.questions);
       setCurrentQ(0);
-      setTimeLeft(7);
+      setTimeLeft(5);
       setPlayers(data.players || []);
       setErrorMsg('');
+      setGameStartTime(data.startTime || Date.now());
+      setQStartTime(Date.now());
     });
     newSocket.on('gameState', (data: any) => {
       console.log('Joining mid-game! Qs length:', data.questions.length, 'Current Q:', data.currentQ);
       setQuestions(data.questions);
       setCurrentQ(data.currentQ || 0);
-      setTimeLeft(7);
+      setTimeLeft(5);
       setPlayers(data.players || []);
       setErrorMsg('');
+      setGameStartTime(data.startTime || Date.now());
+      setQStartTime(Date.now());
     });
     newSocket.on('nextQuestion', (data: any) => {
       const newQ = data.qIndex || 0;
       setCurrentQ(newQ);
-      setTimeLeft(7);
+      setTimeLeft(5);
       setSelectedAnswer('');
+      setQStartTime(Date.now());
       console.log(`Next Q from server: ${newQ + 1}/10`);
     });
     newSocket.on('scoreUpdate', (data: any) => {
@@ -80,22 +87,25 @@ export default function Game() {
     if (currentQ < questions.length && timeLeft > 0) {
       timer = setTimeout(() => setTimeLeft(timeLeft - 1), 1000);
     } else if (timeLeft === 0) {
-      // No client emit—server handles timeout via room sync
-      console.log('Time up—waiting for server advance.');
+      // Emit timeout for this player
+      const timeoutTime = Date.now() - qStartTime;
+      socket?.emit('timeout', { poolId: stake, wallet: walletAddress, qIndex: currentQ, timeoutTime });
     }
     return () => clearTimeout(timer);
-  }, [timeLeft, currentQ, selectedAnswer, questions.length, stake]);
+  }, [timeLeft, currentQ, selectedAnswer, questions.length, stake, walletAddress, qStartTime]);
 
   const submitAnswer = (answer: string) => {
     if (selectedAnswer || !walletAddress) return;
     setSelectedAnswer(answer);
+    const submitTime = Date.now() - qStartTime;
     socket?.emit('submitAnswer', { 
       poolId: stake, 
       wallet: walletAddress, 
       answer, 
-      qIndex: currentQ 
+      qIndex: currentQ,
+      submitTime
     });
-    console.log(`Submitted Q ${currentQ + 1}—waiting for server next.`);
+    console.log(`Submitted Q ${currentQ + 1} (time: ${submitTime}ms)—waiting for server next.`);
   };
 
   if (gameEnded) {
@@ -142,17 +152,20 @@ export default function Game() {
           </div>
         </header>
 
-        <section className="mb-6">
-          <h2 className="text-xl font-bold mb-3">Live Leaderboard</h2>
-          <ul className="bg-gray-800 p-4 rounded overflow-y-auto max-h-48">
-            {players.length > 0 ? players.sort((a: any, b: any) => b.score - a.score).map((p: any, i: number) => (
-              <li key={p.wallet} className={`flex justify-between py-2 border-b border-gray-700 last:border-b-0 ${p.wallet === walletAddress ? 'text-yellow-400' : ''}`}>
-                <span>#{i + 1} {p.wallet.slice(0, 6)}...</span>
-                <span className="font-bold">{p.score}/10</span>
-              </li>
-            )) : <li className="py-2 text-gray-400">Players loading...</li>}
-          </ul>
-        </section>
+        {/* Leaderboard hidden during game */}
+        {gameEnded ? (
+          <section className="mb-6">
+            <h2 className="text-xl font-bold mb-3">Live Leaderboard</h2>
+            <ul className="bg-gray-800 p-4 rounded overflow-y-auto max-h-48">
+              {players.length > 0 ? players.sort((a: any, b: any) => b.score - a.score || a.totalTime - b.totalTime).map((p: any, i: number) => (
+                <li key={p.wallet} className={`flex justify-between py-2 border-b border-gray-700 last:border-b-0 ${p.wallet === walletAddress ? 'text-yellow-400' : ''}`}>
+                  <span>#{i + 1} {p.wallet.slice(0, 6)}...</span>
+                  <span className="font-bold">{p.score}/10 (Time: ${p.totalTime}ms)</span>
+                </li>
+              )) : <li className="py-2 text-gray-400">Players loading...</li>}
+            </ul>
+          </section>
+        ) : null}
 
         <section className="bg-blue-900 p-6 rounded-lg mb-6">
           <h2 className="text-2xl font-bold mb-6 text-center">{q.q}</h2>
