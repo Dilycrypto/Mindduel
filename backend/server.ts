@@ -39,7 +39,7 @@ async function generateQuestions(): Promise<any[]> {
   while (attempts < 3) {
     try {
       const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
-      const prompt = `Generate exactly 10 unique multiple-choice trivia questions for a general audience knowledge game (grade 10-12 level, basic awareness—not too simple for students or too difficult for professionals). Mix these categories evenly: General Knowledge, Geography, History, Science, Technology, Sports, Movies & TV, Music, Literature, Food & Drink, Business & Economics, Politics & Governance, Space & Astronomy, Inventions & Discoveries, Logic & Riddles, Famous Personalities, Nature & Environment, Gaming, Religion & Mythology, Travel & Culture, Trends & News (use current date October 25, 2025 for trends/news—recent events only). No repeats from previous games.
+      const prompt = `Generate exactly 10 unique multiple-choice trivia questions for a general audience knowledge game (grade 10-college level, basic awareness—not too simple for students or too difficult for professionals). Mix these categories evenly: General Knowledge, Geography, History, Science, Technology, Sports, Movies & TV, Music, Literature, Food & Drink, Business & Economics, Politics & Governance, Space & Astronomy, Inventions & Discoveries, Logic & Riddles, Famous Personalities, Nature & Environment, Gaming, Religion & Mythology, Travel & Culture, Trends & News (use current date for trends/news—recent events only). No repeats from previous games.
 
 One-word answers only. 4 options per Q (A, B, C, D—correct answer D). Output ONLY valid JSON array with exactly 10 items: [{"q": "question?", "options": ["A option", "B option", "C option", "D correct"], "correct": "D"}]. No markdown, no code blocks, no explanations.`;
 
@@ -85,11 +85,12 @@ io.on('connection', (socket: Socket) => {
         console.log(`Player ${wallet.slice(0,6)}... joined ${poolId} pool. Total: ${pools[poolId].players}`);
 
         if (games[poolId]) {
-          // Per-player shuffle
-          const shuffledQs = [...games[poolId].questions].sort(() => Math.random() - 0.5);
-          const playerData = games[poolId].players.find(p => p.wallet === wallet) || { wallet, score: 0, currentQ: 0, totalTime: 0, shuffledQs };
+          const playerData = games[poolId].players.find(p => p.wallet === wallet) || { wallet, score: 0, currentQ: 0, totalTime: 0, shuffledQs: [] };
+          if (playerData.shuffledQs.length === 0) {
+            playerData.shuffledQs = [...games[poolId].questions].sort(() => Math.random() - 0.5);
+          }
           socket.emit('gameState', {
-            questions: shuffledQs,
+            questions: playerData.shuffledQs,
             currentQ: playerData.currentQ,
             players: games[poolId].players,
             startTime: games[poolId].startTime
@@ -99,10 +100,10 @@ io.on('connection', (socket: Socket) => {
         if (pools[poolId].players >= 1 && !games[poolId]) {
           try {
             const allQuestions = await generateQuestions();
-            const shuffledQs = [...allQuestions].sort(() => Math.random() - 0.5);  // Base shuffle for pool
+            const baseShuffled = [...allQuestions].sort(() => Math.random() - 0.5);
             games[poolId] = { 
               questions: allQuestions,
-              players: pools[poolId].playerList.map(w => ({ wallet: w, score: 0, currentQ: 0, totalTime: 0, shuffledQs: shuffledQs.map((q, i) => ({ ...q, index: i })) })),
+              players: pools[poolId].playerList.map(w => ({ wallet: w, score: 0, currentQ: 0, totalTime: 0, shuffledQs: baseShuffled.map((q, i) => ({ ...q, index: i })) })),
               startTime: Date.now()
             };
             io.to(poolId).emit('gameStart', { 
