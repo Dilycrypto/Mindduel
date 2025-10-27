@@ -31,7 +31,8 @@ const pools: { [key: string]: Pool } = {
 };
 
 interface PlayerData { wallet: string; score: number; currentQ: number; totalTime: number; shuffledQs: any[]; }
-const games: { [poolId: string]: { questions: any[]; players: PlayerData[]; startTime: number; } } = {};
+interface GameState { questions: any[]; players: PlayerData[]; startTime: number; gameId: number; }  // Add gameId
+const games: { [poolId: string]: GameState } = {};
 
 // Generate 10 unique basic trivia Qs from Gemini
 async function generateQuestions(): Promise<any[]> {
@@ -84,6 +85,12 @@ io.on('connection', (socket: Socket) => {
         
         console.log(`Player ${wallet.slice(0,6)}... joined ${poolId} pool. Total: ${pools[poolId].players}`);
 
+        // Reset game if ended (new round)
+        if (games[poolId] && games[poolId].players.every(p => p.currentQ >= 10)) {
+          delete games[poolId];  // Clear old state
+          console.log(`Reset game state for ${poolId}—new round!`);
+        }
+
         if (games[poolId]) {
           let playerData = games[poolId].players.find(p => p.wallet === wallet);
           if (!playerData) {
@@ -97,7 +104,8 @@ io.on('connection', (socket: Socket) => {
             questions: playerData.shuffledQs,
             currentQ: playerData.currentQ,
             players: games[poolId].players,
-            startTime: games[poolId].startTime
+            startTime: games[poolId].startTime,
+            gameId: games[poolId].gameId
           });
         }
 
@@ -108,15 +116,17 @@ io.on('connection', (socket: Socket) => {
             games[poolId] = { 
               questions: allQuestions,
               players: pools[poolId].playerList.map(w => ({ wallet: w, score: 0, currentQ: 0, totalTime: 0, shuffledQs: baseShuffled.map((q, i) => ({ ...q, index: i })) })),
-              startTime: Date.now()
+              startTime: Date.now(),
+              gameId: Date.now()  // Unique ID per game
             };
             io.to(poolId).emit('gameStart', { 
               poolId, 
               questions: games[poolId].questions,
               players: games[poolId].players,
-              startTime: games[poolId].startTime
+              startTime: games[poolId].startTime,
+              gameId: games[poolId].gameId
             });
-            console.log(`Game started in ${poolId} pool with 10 unique Gemini AI questions!`);
+            console.log(`New game started in ${poolId} (ID: ${games[poolId].gameId}) with 10 unique Gemini AI questions!`);
           } catch (error) {
             console.error(`Gemini gen error in ${poolId}:`, error);
             socket.emit('error', { message: 'Questions gen failed after retries—try stake again!' });
@@ -135,7 +145,8 @@ io.on('connection', (socket: Socket) => {
             questions: shuffledQs,
             currentQ: playerData.currentQ,
             players: games[poolId].players,
-            startTime: games[poolId].startTime
+            startTime: games[poolId].startTime,
+            gameId: games[poolId].gameId
           });
         }
         console.log(`Player ${wallet.slice(0,6)}... re-joined ${poolId}—sent shuffled state.`);
@@ -171,7 +182,9 @@ io.on('connection', (socket: Socket) => {
               prize: (totalPool * (i === 0 ? 0.5 : i === 1 ? 0.3 : 0.2) * 0.9).toFixed(2) 
             }));
             io.to(poolId).emit('gameEnd', { poolId, prizes, finalScores: sortedPlayers });
-            console.log(`Game ended in ${poolId}: Winners ${prizes.map(p => p.wallet.slice(0,6)).join(', ')}`);
+            console.log(`Game ended in ${poolId} (ID: ${games[poolId].gameId}): Winners ${prizes.map(p => p.wallet.slice(0,6)).join(', ')}`);
+            // Reset for next game
+            delete games[poolId];
           }
         }
         console.log(`Answer submitted in ${poolId}: ${wallet.slice(0,6)}... scored? ${answer === player.shuffledQs[qIndex].correct} — advanced to Q ${player.currentQ + 1}!`);
@@ -202,7 +215,9 @@ io.on('connection', (socket: Socket) => {
               prize: (totalPool * (i === 0 ? 0.5 : i === 1 ? 0.3 : 0.2) * 0.9).toFixed(2) 
             }));
             io.to(poolId).emit('gameEnd', { poolId, prizes, finalScores: sortedPlayers });
-            console.log(`Game ended in ${poolId}: Winners ${prizes.map(p => p.wallet.slice(0,6)).join(', ')}`);
+            console.log(`Game ended in ${poolId} (ID: ${games[poolId].gameId}): Winners ${prizes.map(p => p.wallet.slice(0,6)).join(', ')}`);
+            // Reset for next game
+            delete games[poolId];
           }
         }
         console.log(`Timeout in ${poolId}: ${wallet.slice(0,6)}... advanced to Q ${player.currentQ + 1}!`);
