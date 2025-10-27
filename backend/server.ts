@@ -31,7 +31,7 @@ const pools: { [key: string]: Pool } = {
 };
 
 interface PlayerData { wallet: string; score: number; currentQ: number; totalTime: number; shuffledQs: any[]; }
-interface GameState { questions: any[]; players: PlayerData[]; startTime: number; gameId: number; }  // Add gameId
+interface GameState { questions: any[]; players: PlayerData[]; startTime: number; gameId: number; }
 const games: { [poolId: string]: GameState } = {};
 
 // Generate 10 unique basic trivia Qs from Gemini
@@ -85,9 +85,9 @@ io.on('connection', (socket: Socket) => {
         
         console.log(`Player ${wallet.slice(0,6)}... joined ${poolId} pool. Total: ${pools[poolId].players}`);
 
-        // Reset game if ended (new round)
+        // Reset game if ended
         if (games[poolId] && games[poolId].players.every(p => p.currentQ >= 10)) {
-          delete games[poolId];  // Clear old state
+          delete games[poolId];
           console.log(`Reset game state for ${poolId}—new round!`);
         }
 
@@ -117,7 +117,7 @@ io.on('connection', (socket: Socket) => {
               questions: allQuestions,
               players: pools[poolId].playerList.map(w => ({ wallet: w, score: 0, currentQ: 0, totalTime: 0, shuffledQs: baseShuffled.map((q, i) => ({ ...q, index: i })) })),
               startTime: Date.now(),
-              gameId: Date.now()  // Unique ID per game
+              gameId: Date.now()
             };
             io.to(poolId).emit('gameStart', { 
               poolId, 
@@ -159,7 +159,9 @@ io.on('connection', (socket: Socket) => {
     if (games[poolId]) {
       const player = games[poolId].players.find(p => p.wallet === wallet);
       if (player && player.currentQ === qIndex) {
-        if (answer === player.shuffledQs[qIndex].correct) {
+        // Check against shuffled Q's correct option (full string)
+        const correctOpt = player.shuffledQs[qIndex].options[3];  // D is last
+        if (answer === correctOpt) {
           player.score += 1;
         }
         player.totalTime += submitTime;
@@ -187,7 +189,7 @@ io.on('connection', (socket: Socket) => {
             delete games[poolId];
           }
         }
-        console.log(`Answer submitted in ${poolId}: ${wallet.slice(0,6)}... scored? ${answer === player.shuffledQs[qIndex].correct} — advanced to Q ${player.currentQ + 1}!`);
+        console.log(`Answer submitted in ${poolId}: ${wallet.slice(0,6)}... scored? ${answer === correctOpt} — advanced to Q ${player.currentQ + 1}!`);
       }
     }
   });
