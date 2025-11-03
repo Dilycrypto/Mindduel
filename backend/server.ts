@@ -40,7 +40,7 @@ async function generateQuestions(): Promise<any[]> {
   while (attempts < 3) {
     try {
       const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
-      const prompt = `Generate exactly 10 unique multiple-choice trivia questions for a general audience knowledge game (grade 10-12 level, basic awareness—not too simple for students or too difficult for professionals). Mix these categories evenly: General Knowledge, Geography, History, Science, Technology, Sports, Movies & TV, Music, Literature, Food & Drink, Business & Economics, Politics & Governance, Space & Astronomy, Inventions & Discoveries, Logic & Riddles, Famous Personalities, Nature & Environment, Gaming, Religion & Mythology, Travel & Culture, Trends & News (use current date October 25, 2025 for trends/news—recent events only). No repeats from previous games.
+      const prompt = `Generate exactly 10 unique multiple-choice trivia questions for a general audience knowledge game (grade 10-12 level, basic awareness—not too simple for students or too difficult for professionals). Mix these categories evenly: General Knowledge, Geography, History, Science, Technology, Sports, Movies & TV, Music, Literature, Food & Drink, Business & Economics, Politics & Governance, Space & Astronomy, Inventions & Discoveries, Logic & Riddles, Famous Personalities, Nature & Environment, Gaming, Religion & Mythology, Travel & Culture, Trends & News (use current date November 03, 2025 for trends/news—recent events only). No repeats from previous games.
 
 One-word answers only. 4 options per Q (A, B, C, D—correct answer D). Output ONLY valid JSON array with exactly 10 items: [{"q": "question?", "options": ["A option", "B option", "C option", "D correct"], "correct": "D"}]. No markdown, no code blocks, no explanations.`;
 
@@ -85,7 +85,7 @@ io.on('connection', (socket: Socket) => {
         
         console.log(`Player ${wallet.slice(0,6)}... joined ${poolId} pool. Total: ${pools[poolId].players}`);
 
-        // Reset game if ended
+        // Always reset if ended or new
         if (games[poolId] && games[poolId].players.every(p => p.currentQ >= 10)) {
           delete games[poolId];
           console.log(`Reset game state for ${poolId}—new round!`);
@@ -98,8 +98,7 @@ io.on('connection', (socket: Socket) => {
             games[poolId].players.push(playerData);
           }
           if (playerData.shuffledQs.length === 0) {
-            // Deep copy + shuffle
-            playerData.shuffledQs = JSON.parse(JSON.stringify(games[poolId].questions)).sort(() => Math.random() - 0.5);
+            playerData.shuffledQs = [...games[poolId].questions].sort(() => Math.random() - 0.5);
           }
           socket.emit('gameState', {
             questions: playerData.shuffledQs,
@@ -113,15 +112,10 @@ io.on('connection', (socket: Socket) => {
         if (pools[poolId].players >= 1 && !games[poolId]) {
           try {
             const allQuestions = await generateQuestions();
+            const baseShuffled = [...allQuestions].sort(() => Math.random() - 0.5);
             games[poolId] = { 
               questions: allQuestions,
-              players: pools[poolId].playerList.map(w => ({ 
-                wallet: w, 
-                score: 0, 
-                currentQ: 0, 
-                totalTime: 0, 
-                shuffledQs: JSON.parse(JSON.stringify(allQuestions)).sort(() => Math.random() - 0.5)
-              })),
+              players: pools[poolId].playerList.map(w => ({ wallet: w, score: 0, currentQ: 0, totalTime: 0, shuffledQs: baseShuffled.map((q, i) => ({ ...q, index: i })) })),
               startTime: Date.now(),
               gameId: Date.now()
             };
@@ -148,7 +142,7 @@ io.on('connection', (socket: Socket) => {
           }
           const shuffledQs = playerData.shuffledQs.length > 0 
             ? playerData.shuffledQs 
-            : JSON.parse(JSON.stringify(games[poolId].questions)).sort(() => Math.random() - 0.5);
+            : [...games[poolId].questions].sort(() => Math.random() - 0.5);
           playerData.shuffledQs = shuffledQs;
           socket.emit('gameState', {
             questions: shuffledQs,
@@ -212,7 +206,10 @@ io.on('connection', (socket: Socket) => {
       if (player && player.currentQ === qIndex) {
         player.totalTime += timeoutTime;
         player.currentQ += 1;
-        io.to(poolId).emit('scoreUpdate', { players: games[poolId].players });
+        io.to(poolId).emit('scoreUpdate', { 
+          poolId, 
+          players: games[poolId].players 
+        });
         if (player.currentQ < 10) {
           socket.emit('nextQuestion', { poolId, qIndex: player.currentQ });
         } else {
