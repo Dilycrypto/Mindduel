@@ -98,7 +98,8 @@ io.on('connection', (socket: Socket) => {
             games[poolId].players.push(playerData);
           }
           if (playerData.shuffledQs.length === 0) {
-            playerData.shuffledQs = [...games[poolId].questions].sort(() => Math.random() - 0.5);
+            // Deep copy + shuffle
+            playerData.shuffledQs = JSON.parse(JSON.stringify(games[poolId].questions)).sort(() => Math.random() - 0.5);
           }
           socket.emit('gameState', {
             questions: playerData.shuffledQs,
@@ -112,10 +113,15 @@ io.on('connection', (socket: Socket) => {
         if (pools[poolId].players >= 1 && !games[poolId]) {
           try {
             const allQuestions = await generateQuestions();
-            const baseShuffled = [...allQuestions].sort(() => Math.random() - 0.5);
             games[poolId] = { 
               questions: allQuestions,
-              players: pools[poolId].playerList.map(w => ({ wallet: w, score: 0, currentQ: 0, totalTime: 0, shuffledQs: baseShuffled.map((q, i) => ({ ...q, index: i })) })),
+              players: pools[poolId].playerList.map(w => ({ 
+                wallet: w, 
+                score: 0, 
+                currentQ: 0, 
+                totalTime: 0, 
+                shuffledQs: JSON.parse(JSON.stringify(allQuestions)).sort(() => Math.random() - 0.5)
+              })),
               startTime: Date.now(),
               gameId: Date.now()
             };
@@ -140,7 +146,10 @@ io.on('connection', (socket: Socket) => {
             playerData = { wallet, score: 0, currentQ: 0, totalTime: 0, shuffledQs: [] };
             games[poolId].players.push(playerData);
           }
-          const shuffledQs = playerData.shuffledQs || [...games[poolId].questions].sort(() => Math.random() - 0.5);
+          const shuffledQs = playerData.shuffledQs.length > 0 
+            ? playerData.shuffledQs 
+            : JSON.parse(JSON.stringify(games[poolId].questions)).sort(() => Math.random() - 0.5);
+          playerData.shuffledQs = shuffledQs;
           socket.emit('gameState', {
             questions: shuffledQs,
             currentQ: playerData.currentQ,
@@ -158,24 +167,28 @@ io.on('connection', (socket: Socket) => {
     const { poolId, wallet, answer, qIndex, submitTime } = data;
     if (games[poolId]) {
       const player = games[poolId].players.find(p => p.wallet === wallet);
-      if (player && player.currentQ === qIndex) {
-        // Check against shuffled Q's correct option (full string)
-        const correctOpt = player.shuffledQs[qIndex].options[3];  // D is last
-        if (answer === correctOpt) {
+      if (player && player.currentQ === qIndex && player.shuffledQs[qIndex]) {
+        const correctOpt = player.shuffledQs[qIndex].options[3]?.trim().toLowerCase();
+        const submitted = answer.trim().toLowerCase();
+
+        if (submitted === correctOpt) {
           player.score += 1;
+          console.log(`CORRECT! ${wallet.slice(0,6)}... got Q${qIndex + 1} right. Score: ${player.score}`);
+        } else {
+          console.log(`WRONG! ${wallet.slice(0,6)}... submitted "${submitted}", expected "${correctOpt}"`);
         }
+
         player.totalTime += submitTime;
         player.currentQ += 1;
+
         io.to(poolId).emit('scoreUpdate', { 
           poolId, 
-          players: games[poolId].players, 
-          currentQ: player.currentQ 
+          players: games[poolId].players 
         });
-        // Advance this player only
+
         if (player.currentQ < 10) {
           socket.emit('nextQuestion', { poolId, qIndex: player.currentQ });
         } else {
-          // Check if all players ended
           if (games[poolId].players.every(p => p.currentQ >= 10)) {
             const totalPool = pools[poolId].players * parseFloat(poolId);
             const sortedPlayers = games[poolId].players.sort((a, b) => b.score - a.score || a.totalTime - b.totalTime);
@@ -185,11 +198,9 @@ io.on('connection', (socket: Socket) => {
             }));
             io.to(poolId).emit('gameEnd', { poolId, prizes, finalScores: sortedPlayers });
             console.log(`Game ended in ${poolId} (ID: ${games[poolId].gameId}): Winners ${prizes.map(p => p.wallet.slice(0,6)).join(', ')}`);
-            // Reset for next game
             delete games[poolId];
           }
         }
-        console.log(`Answer submitted in ${poolId}: ${wallet.slice(0,6)}... scored? ${answer === correctOpt} — advanced to Q ${player.currentQ + 1}!`);
       }
     }
   });
@@ -201,11 +212,7 @@ io.on('connection', (socket: Socket) => {
       if (player && player.currentQ === qIndex) {
         player.totalTime += timeoutTime;
         player.currentQ += 1;
-        io.to(poolId).emit('scoreUpdate', { 
-          poolId, 
-          players: games[poolId].players, 
-          currentQ: player.currentQ 
-        });
+        io.to(poolId).emit('scoreUpdate', { players: games[poolId].players });
         if (player.currentQ < 10) {
           socket.emit('nextQuestion', { poolId, qIndex: player.currentQ });
         } else {
@@ -217,8 +224,6 @@ io.on('connection', (socket: Socket) => {
               prize: (totalPool * (i === 0 ? 0.5 : i === 1 ? 0.3 : 0.2) * 0.9).toFixed(2) 
             }));
             io.to(poolId).emit('gameEnd', { poolId, prizes, finalScores: sortedPlayers });
-            console.log(`Game ended in ${poolId} (ID: ${games[poolId].gameId}): Winners ${prizes.map(p => p.wallet.slice(0,6)).join(', ')}`);
-            // Reset for next game
             delete games[poolId];
           }
         }
